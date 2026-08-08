@@ -6,12 +6,23 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "worker:indexer": "tsx workers/indexer.ts",
+    "worker:cache": "tsx workers/cache.ts",
+    "worker:settler": "tsx workers/settler.ts",
+    "agent": "tsx scripts/agent.ts",
+    "e2e": "tsx scripts/e2e.ts"
   },
   "dependencies": {
+    "@x402/evm": "^2.21.0",
+    "@x402/fetch": "^2.21.0",
+    "dotenv": "^17.4.2",
+    "jose": "^6.2.8",
+    "mongodb": "^7.5.0",
     "next": "16.3.0",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "viem": "^2.55.11"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -21,6 +32,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
     "tailwindcss": "^4",
+    "tsx": "^4.23.11",
     "typescript": "^5"
   },
   "packageManager": "pnpm@10.12.4"
