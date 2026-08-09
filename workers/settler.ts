@@ -4,6 +4,7 @@ import { dbCollections, type TournamentDoc } from "../lib/db";
 import { getTournament, publicClient, submitRefundLocked, submitSettle } from "../lib/chain";
 import { arenaAbi } from "../lib/abi";
 import { pickWinner, sessionComplete } from "../lib/scoring";
+import { recordSettlement } from "../lib/leaderboard";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const RETRY_MS = 60_000; // backoff before re-attempting a failed settle/refund
@@ -50,6 +51,13 @@ async function attemptSettle(t: TournamentDoc, winner: `0x${string}`) {
         },
       }
     );
+    // Best-effort: if this fails, the Settled-event path (webhook/indexer)
+    // applies the rows via the idempotent guards.
+    try {
+      await recordSettlement(t._id, winner, Number(fee));
+    } catch (e) {
+      console.error(`[settler] recordSettlement(${t._id}) failed:`, e);
+    }
     console.log(
       `[settler] settled id=${t._id} winner=${winner} fee=${fee.toString()} tx=${receipt.transactionHash}`
     );

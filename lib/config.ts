@@ -23,6 +23,12 @@ export const config = {
   chesspuzzlesApiBase:
     process.env.CHESSPUZZLES_API_BASE ?? "https://api.chesspuzzles.xyz",
 
+  // --- leaderboard / usernames ---
+  usernameMinLength: num(process.env.USERNAME_MIN_LENGTH, 3),
+  usernameMaxLength: num(process.env.USERNAME_MAX_LENGTH, 24),
+  usernameChangeCooldownHours: num(process.env.USERNAME_CHANGE_COOLDOWN_HOURS, 24),
+  leaderboardPageSize: num(process.env.LEADERBOARD_PAGE_SIZE, 20),
+
   // --- chain addresses / wallets ---
   contractAddress: (process.env.CONTRACT_ADDRESS ?? "") as `0x${string}`,
   treasuryAddress: process.env.TREASURY_ADDRESS ?? "",

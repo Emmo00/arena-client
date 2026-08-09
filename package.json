@@ -11,7 +11,8 @@
     "worker:cache": "tsx workers/cache.ts",
     "worker:settler": "tsx workers/settler.ts",
     "agent": "tsx scripts/agent.ts",
-    "e2e": "tsx scripts/e2e.ts"
+    "e2e": "tsx scripts/e2e.ts",
+    "test:leaderboard": "tsx scripts/leaderboard-test.ts"
   },
   "dependencies": {
     "@x402/evm": "^2.21.0",

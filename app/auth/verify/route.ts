@@ -20,11 +20,16 @@ export async function POST(request: NextRequest) {
     } catch {
       throw badRequest("invalid address");
     }
-    const { token, expiresAt } = await verifySignatureAndIssueToken(
+    const username =
+      typeof body?.username === "string" && body.username.trim()
+        ? body.username.trim()
+        : undefined;
+    const { token, expiresAt, username: finalUsername } = await verifySignatureAndIssueToken(
       address,
-      body.signature as `0x${string}`
+      body.signature as `0x${string}`,
+      username
     );
-    return json({ token, expiresAt });
+    return json({ token, expiresAt, username: finalUsername });
   } catch (e) {
     return handleApiError(e);
   }

@@ -26,6 +26,9 @@ export interface TournamentDoc {
   refundAttemptedAt: number | null;
   createdAt: number;
   updatedAt: number;
+  /** Single-flight guard: set once when leaderboard rows are applied, so the
+   * settler and the Settled-event path can't race or replay. */
+  leaderboardApplied?: boolean;
 }
 
 export interface SessionDoc {
@@ -71,6 +74,21 @@ export interface NonceDoc {
   expiresAt: number; // epoch ms
 }
 
+/** One row per agent, maintained by the settlement worker (never read-computed). */
+export interface LeaderboardDoc {
+  _id: string; // checksummed wallet address
+  username: string;
+  usernameLower: string; // unique index — enforces case-insensitive uniqueness
+  usernameChangedAt: number | null; // epoch ms, for the rename cooldown
+  tournamentsPlayed: number;
+  tournamentsWon: number;
+  totalWon: number; // atomic units, sum of payouts received as winner
+  totalStaked: number; // atomic units, sum of stakes across played tournaments
+  netEarned: number; // totalWon - totalStaked (can be negative); sort key
+  settledTournamentIds: number[]; // idempotency guard: exactly-once per tournament
+  updatedAt: number;
+}
+
 export interface MetaDoc {
   _id: string;
   value: string;
@@ -79,7 +97,7 @@ export interface MetaDoc {
 let client: MongoClient | null = null;
 let db: Db | null = null;
 
-async function ensureIndexes(d: Db) {
+async function createIndexes(d: Db) {
   await Promise.all([
     d.collection("nonces").createIndex({ expiresAt: 1 }),
     d.collection("tournaments").createIndex({ status: 1 }),
@@ -88,7 +106,17 @@ async function ensureIndexes(d: Db) {
     d.collection("sessions").createIndex({ tournamentId: 1, player: 1 }, { unique: true }),
     d.collection("puzzles").createIndex({ generation: 1 }),
     d.collection("submissions").createIndex({ sessionId: 1 }),
+    d.collection("leaderboard").createIndex({ usernameLower: 1 }, { unique: true }),
+    d.collection("leaderboard").createIndex({ netEarned: -1, tournamentsPlayed: -1, username: 1 }),
   ]);
+}
+
+/** (Re)create collection indexes on the current connection. Safe to call again
+ * after a dropDatabase() (e.g. test harnesses) — createIndex is a no-op when
+ * the index already exists. */
+export async function ensureIndexes(): Promise<void> {
+  const d = await getDb();
+  await createIndexes(d);
 }
 
 export async function getDb(): Promise<Db> {
@@ -97,7 +125,7 @@ export async function getDb(): Promise<Db> {
     await c.connect();
     client = c;
     db = c.db();
-    await ensureIndexes(db);
+    await createIndexes(db);
   }
   return db;
 }
@@ -122,5 +150,6 @@ export function dbCollections() {
     tournaments: () => getCol<TournamentDoc>("tournaments"),
     sessions: () => getCol<SessionDoc>("sessions"),
     submissions: () => getCol<SubmissionDoc>("submissions"),
+    leaderboard: () => getCol<LeaderboardDoc>("leaderboard"),
   };
 }

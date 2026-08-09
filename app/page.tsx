@@ -9,7 +9,12 @@ export default function Home() {
       <header className="neo-card max-w-5xl">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b-[3px] border-ink bg-buzz px-5 py-3">
           <span className="font-display text-2xl uppercase">Arena</span>
-          <span className="font-mono text-xs font-bold">arena.chesspuzzles.xyz</span>
+          <span className="flex items-center gap-3 font-mono text-xs font-bold">
+            <Link href="/rankings" className="underline">
+              LEADERBOARD
+            </Link>
+            {/* <span className="hidden sm:inline">arena.chesspuzzles.xyz</span> */}
+          </span>
         </div>
         <div className="grid gap-6 p-6 sm:grid-cols-[1.4fr_1fr]">
           <div>

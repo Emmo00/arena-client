@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { config } from "./config";
 import { dbCollections } from "./db";
+import { ensureUser } from "./leaderboard";
 import { ApiError, unauthorized } from "./http";
 
 const NONCE_TTL_MS = 10 * 60 * 1000;
@@ -36,8 +37,9 @@ export async function issueNonce(addressRaw: string): Promise<{ nonce: string; m
 /** Verify a personal_sign signature against a pending nonce, consume it, issue a JWT. */
 export async function verifySignatureAndIssueToken(
   addressRaw: string,
-  signature: `0x${string}`
-): Promise<{ token: string; expiresAt: number }> {
+  signature: `0x${string}`,
+  username?: string
+): Promise<{ token: string; expiresAt: number; username: string }> {
   const address = getAddress(addressRaw);
   const nonces = await dbCollections().nonces();
   const doc = await nonces.findOne({ _id: address });
@@ -68,7 +70,9 @@ export async function verifySignatureAndIssueToken(
     .setExpirationTime(`${TOKEN_TTL_SECONDS}s`)
     .sign(secret());
 
-  return { token, expiresAt: Date.now() + TOKEN_TTL_SECONDS * 1000 };
+  const { username: finalUsername } = await ensureUser(address, username);
+
+  return { token, expiresAt: Date.now() + TOKEN_TTL_SECONDS * 1000, username: finalUsername };
 }
 
 /** Decode + verify a bearer token, returning the checksummed wallet address. */

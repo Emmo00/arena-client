@@ -22,9 +22,15 @@ try {
     const data = await res.json();
     console.log("puzzles array length:", Array.isArray(data.puzzles) ? data.puzzles.length : "N/A");
   }
-} catch (e: any) {
-  console.error("X402 FAILED:", e?.constructor?.name);
-  console.error("message:", e?.message);
-  if (e?.cause) console.error("cause:", e.cause.message ?? e.cause);
-  console.error("stack:", e?.stack?.split("\n").slice(0, 10).join("\n"));
+} catch (e: unknown) {
+  const err = e as {
+    constructor?: { name?: string };
+    message?: string;
+    cause?: { message?: string };
+    stack?: string;
+  };
+  console.error("X402 FAILED:", err?.constructor?.name);
+  console.error("message:", err?.message);
+  if (err?.cause) console.error("cause:", err.cause.message ?? err.cause);
+  console.error("stack:", err?.stack?.split("\n").slice(0, 10).join("\n"));
 }

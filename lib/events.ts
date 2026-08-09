@@ -1,6 +1,7 @@
 import { config } from "./config";
 import { dbCollections, type TournamentDoc } from "./db";
 import { sampleSubset } from "./puzzles";
+import { recordSettlement } from "./leaderboard";
 
 export type ArenaEventName =
   | "LobbyOpened"
@@ -105,6 +106,11 @@ export async function processArenaEvent(ev: ArenaEventInput) {
           },
         }
       );
+      // Apply leaderboard rows. Idempotent; if this throws, the webhook 500s and
+      // retries (or the indexer backfills), and the per-row/flag guards prevent
+      // double counting. IMPORTANT: must be called even when the settler already
+      // applied — it is the backstop and the guards make it a no-op.
+      if (ev.winner) await recordSettlement(id, ev.winner, Number(ev.fee ?? 0n));
       console.log(`[events] Settled id=${id} winner=${ev.winner} tx=${ev.transactionHash}`);
       break;
     }

@@ -9,7 +9,7 @@ const CELO_USDT = "0x48065fbbe25f71c9282ddf5e1cd6d6a887483d5e";
 const url = `${config.chesspuzzlesApiBase}/puzzles?count=100`;
 const account = privateKeyToAccount(config.appWalletPrivateKey as `0x${string}`);
 
-function decodeHeader(r) {
+function decodeHeader(r: Response) {
   const h = r.headers.get("payment-required");
   if (!h) return "(no payment-required header on final response)";
   try { const j = JSON.parse(Buffer.from(h, "base64").toString("utf8")); return j.error; }
