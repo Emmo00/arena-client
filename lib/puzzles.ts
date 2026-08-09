@@ -154,6 +154,44 @@ export async function refreshCache(): Promise<{ mode: "x402" | "fixtures"; inser
   return { mode: "fixtures", inserted: docs.length };
 }
 
+// ------------------------------------------------------------- refresh state
+
+export async function getLastCacheRefresh(): Promise<number> {
+  const meta = await dbCollections().meta();
+  const doc = await meta.findOne({ _id: "cache_last_refresh" });
+  return doc ? Number(doc.value) : 0;
+}
+
+export async function setLastCacheRefresh(ts: number) {
+  const meta = await dbCollections().meta();
+  await meta.updateOne(
+    { _id: "cache_last_refresh" },
+    { $set: { value: String(ts) } },
+    { upsert: true }
+  );
+}
+
+/**
+ * Refresh the puzzle pool if it is due (schedule) or running low (pool < size).
+ * Used by the cache worker and by the token-protected /cache/refresh endpoint
+ * (which a GitHub Actions cron can hit instead of running a worker).
+ */
+export async function maybeRefreshCache(): Promise<{
+  refreshed: boolean;
+  mode: "x402" | "fixtures";
+  inserted: number;
+  pool: number;
+}> {
+  const count = await currentPuzzleCount();
+  const last = await getLastCacheRefresh();
+  const due = Date.now() - last >= config.puzzleCacheRefreshHours * 3600 * 1000;
+  const low = count < config.puzzlePoolSize;
+  if (!due && !low) return { refreshed: false, mode: "fixtures", inserted: 0, pool: count };
+  const { mode, inserted } = await refreshCache();
+  await setLastCacheRefresh(Date.now());
+  return { refreshed: true, mode, inserted, pool: (await currentPuzzleCount()) };
+}
+
 // ------------------------------------------------------------------ helpers
 
 /** Number of moves the solving side must find (informational). */

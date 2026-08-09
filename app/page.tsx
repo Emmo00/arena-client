@@ -80,7 +80,7 @@ const steps = [
   },
   {
     title: "Accept",
-    body: "Browse open lobbies, match the stake, and lock in by depositing 1 USDT. You never see your opponent's score.",
+    body: "Browse open lobbies, match the stake, and lock in by depositing 1 USDT.",
   },
   {
     title: "Solve",
@@ -88,6 +88,6 @@ const steps = [
   },
   {
     title: "Settle",
-    body: "The app calls settle() on-chain. Winner gets pot − fee; the fee lands in the treasury. Fully escrowed.",
+    body: "The app calls settle() on-chain. Winner gets pot − fee.",
   },
 ];

@@ -52,6 +52,8 @@ MATCH_TIMEOUT_SECONDS: ${config.matchTimeoutSeconds}
 - Lobbies: GET /lobbies/open, GET /lobbies/:id
 - Sessions: POST /sessions/start, GET /sessions/:id, GET /sessions/:id/puzzle/next, POST /sessions/:id/puzzle/:puzzleId/submit
 - Tournaments: GET /tournaments/:id
+- Webhooks: POST /webhooks/alchemy (Alchemy GraphQL custom webhook, HMAC-signed)
+- Cache: POST /cache/refresh (bearer-token protected, for a cron)
 
 ## Auth handshake
 
@@ -141,6 +143,28 @@ viem snippet:
   are complete, or when one side never starts within ${config.matchTimeoutSeconds}s of lock
   (no-show = forfeit; the started side wins).
 - On-chain settlement pays pot - fee to the winner; fee lands in the treasury.
+
+## Event ingestion
+
+- Live: Alchemy GraphQL custom webhook POSTs to ${config.appBaseUrl}/webhooks/alchemy.
+  Verify the x-alchemy-signature HMAC-SHA256 header with ALCHEMY_WEBHOOK_SIGNING_KEY.
+  Set the webhook up with the GraphQL query below (network: Celo mainnet), replacing the
+  address with the contract and keeping all five event topic filters.
+
+  query:
+    { block { number timestamp logs(filter: {addresses: ["${contract}"] topics: [["<LobbyOpened topic>","<LobbyAccepted topic>","<Settled topic>","<LobbyRefunded topic>","<LockedLobbyRefunded topic>"]]) { topics data transaction { hash } } } }
+
+- Backfill: run \`pnpm worker:indexer\` once to index history from
+  INDEXER_START_BLOCK up to the chain tip (catches anything missed before the
+  webhook was created, or after downtime).
+
+## Puzzle cache
+
+- The app pays chesspuzzles.xyz via x402 to fill the puzzle pool into a new
+  generation. Two ways to refresh:
+  1. POST ${config.appBaseUrl}/cache/refresh with header \`Authorization: Bearer <CACHE_REFRESH_TOKEN>\`
+     (refreshes only when due/low; ideal for a GitHub Actions cron).
+  2. \`pnpm worker:cache\` polling loop (equivalent logic).
 
 ## Settlement / refunds
 

@@ -18,7 +18,7 @@ export const config = {
 
   // --- puzzle cache ---
   puzzlePoolSize: num(process.env.PUZZLE_POOL_SIZE, 40),
-  puzzleCacheSize: num(process.env.PUZZLE_CACHE_SIZE, 2000),
+  puzzleCacheSize: num(process.env.PUZZLE_CACHE_SIZE, 20),
   puzzleCacheRefreshHours: num(process.env.PUZZLE_CACHE_REFRESH_HOURS, 24),
   chesspuzzlesApiBase:
     process.env.CHESSPUZZLES_API_BASE ?? "https://api.chesspuzzles.xyz",
@@ -35,6 +35,13 @@ export const config = {
   appBaseUrl: process.env.APP_BASE_URL ?? "https://arena.chesspuzzles.xyz",
   mongodbUri: process.env.MONGODB_URI ?? "mongodb://127.0.0.1:27017/arena",
   authJwtSecret: process.env.AUTH_JWT_SECRET ?? "dev-secret-change-me",
+
+  // --- alchemy notify (GraphQL custom webhook for live events) ---
+  alchemyWebhookSigningKey: process.env.ALCHEMY_WEBHOOK_SIGNING_KEY ?? "",
+  alchemyNotifyAuthToken: process.env.ALCHEMY_NOTIFY_AUTH_TOKEN ?? "",
+
+  // --- puzzle cache refresh endpoint (GitHub Actions cron) ---
+  cacheRefreshToken: process.env.CACHE_REFRESH_TOKEN ?? "",
 
   // --- workers ---
   indexerStartBlock: process.env.INDEXER_START_BLOCK
