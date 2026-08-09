@@ -8,7 +8,7 @@ export async function GET() {
   try {
     const tournaments = await dbCollections().tournaments();
     const open = await tournaments
-      .find({ status: "Open" })
+      .find({ status: "Open", serviced: { $ne: false } })
       .sort({ _id: -1 })
       .limit(50)
       .toArray();
@@ -19,6 +19,8 @@ export async function GET() {
         openedAt: t.openedAt,
         expiresAt: t.openedAt + config.lobbyTimeoutSeconds,
       })),
+      count: open.length,
+      capacity: config.maxOpenLobbies,
     });
   } catch (e) {
     return handleApiError(e);

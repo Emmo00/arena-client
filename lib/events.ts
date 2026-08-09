@@ -38,8 +38,15 @@ export async function processArenaEvent(ev: ArenaEventInput) {
     case "LobbyOpened": {
       const existing = await tournaments.findOne({ _id: id });
       if (existing) return;
-      // Assign the fixed puzzle subset from the *current* cache generation.
-      const subset = await sampleSubset(config.puzzlePoolSize);
+      // App-side cap on simultaneously serviced open lobbies. Lobbies opened
+      // beyond MAX_OPEN_LOBBIES are still indexed (so the agent can see the
+      // `serviced:false` flag) but never get a puzzle subset or a session; the
+      // stake is returned by refundLobby/refundLockedLobby on-chain.
+      const openServiced = await tournaments.countDocuments({
+        status: "Open",
+        serviced: { $ne: false },
+      });
+      const serviced = openServiced < config.maxOpenLobbies;
       const doc: TournamentDoc = {
         _id: id,
         status: "Open",
@@ -49,8 +56,9 @@ export async function processArenaEvent(ev: ArenaEventInput) {
         stakeB: null,
         openedAt: ev.timestamp,
         lockedAt: null,
+        serviced,
         generation: null,
-        puzzleSubset: subset,
+        puzzleSubset: serviced ? await sampleSubset(config.puzzlePoolSize) : [],
         winner: null,
         fee: null,
         settleTx: null,
@@ -61,7 +69,9 @@ export async function processArenaEvent(ev: ArenaEventInput) {
         updatedAt: now,
       };
       await tournaments.insertOne(doc);
-      console.log(`[events] LobbyOpened id=${id} playerA=${doc.playerA} subset=${subset.length}`);
+      console.log(
+        `[events] LobbyOpened id=${id} playerA=${doc.playerA} serviced=${serviced} subset=${doc.puzzleSubset.length}`
+      );
       break;
     }
     case "LobbyAccepted": {

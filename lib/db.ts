@@ -12,6 +12,10 @@ export interface TournamentDoc {
   stakeB: string | null;
   openedAt: number; // epoch seconds
   lockedAt: number | null;
+  /** Whether the app accepted this lobby into its pool. Unserviced lobbies
+   * (opened beyond MAX_OPEN_LOBBIES) are indexed but never get a puzzle subset
+   * or session; their stakes are returned by refundLobby/refundLockedLobby. */
+  serviced: boolean;
   generation: number | null; // puzzle cache generation the subset was sampled from
   puzzleSubset: string[]; // fixed puzzle ids for both agents
   winner: string | null;

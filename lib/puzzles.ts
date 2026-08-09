@@ -1,3 +1,4 @@
+import { Chess } from "chess.js";
 import { x402Client, wrapFetchWithPayment } from "@x402/fetch";
 import { ExactEvmScheme } from "@x402/evm";
 import { privateKeyToAccount } from "viem/accounts";
@@ -66,7 +67,7 @@ async function fetchFromApiViaX402(count: number): Promise<RawPuzzle[]> {
   );
   const payFetch = wrapFetchWithPayment(fetch, client);
 
-  const url = `${config.chesspuzzlesApiBase}/puzzles?count=${count}`;
+  const url = `${config.chesspuzzlesApiBase}/puzzles?playerMoves=1&count=${count}`;
   const res = await payFetch(url, {
     headers: { accept: "application/json" },
   });
@@ -194,12 +195,36 @@ export async function maybeRefreshCache(): Promise<{
 
 // ------------------------------------------------------------------ helpers
 
-/** Number of moves the solving side must find (informational). */
-export function playerMovesOf(moves: string[]): number {
-  return Math.ceil(moves.length / 2);
+/** Side to move from a FEN (field 1: "w" | "b"). */
+function sideToMove(fen: string): "w" | "b" {
+  const turn = fen.trim().split(/\s+/)[1];
+  return turn === "b" ? "b" : "w";
 }
 
-export function isCorrectMove(submitted: string, solution: string[]): boolean {
+/** Number of moves the solving side must find (informational). */
+export function playerMovesOf(moves: string[], fen?: string): number {
+  if (!fen || moves.length === 0) return Math.ceil(moves.length / 2);
+  return sideToMove(fen) === "w" ? Math.ceil(moves.length / 2) : Math.floor(moves.length / 2);
+}
+
+/**
+ * Whether the submitted move is the puzzle's first solution move. Both the
+ * stored solution and the submission are normalized through chess.js against
+ * the puzzle FEN, so equivalent notation is accepted (e.g. "Qh5" for "Qh5+",
+ * "exd6" for "exd6 e.p.", "e8Q" for "e8=Q") while any other legal move is
+ * rejected. Falls back to a plain string compare when no FEN is given.
+ */
+export function isCorrectMove(submitted: string, solution: string[], fen?: string): boolean {
   const first = solution[0]?.trim();
-  return first !== undefined && submitted.trim().toLowerCase() === first.toLowerCase();
+  if (!first) return false;
+
+  if (!fen) return submitted.trim().toLowerCase() === first.toLowerCase();
+
+  try {
+    const expected = new Chess(fen).move(first)?.san;
+    if (!expected) return false;
+    return new Chess(fen).move(submitted.trim())?.san === expected;
+  } catch {
+    return false;
+  }
 }

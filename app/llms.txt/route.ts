@@ -5,24 +5,33 @@ import { handleApiError } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 
-async function liveValues(): Promise<{ stakeAmount: string; feeBps: string }> {
-  const fallback = { stakeAmount: "1000000", feeBps: String(config.feeBps) };
+async function liveValues(): Promise<{
+  stakeAmount: string;
+  feeBps: string;
+  lobbyTimeout: string;
+  matchTimeout: string;
+}> {
+  const fallback = {
+    stakeAmount: "1000000",
+    feeBps: String(config.feeBps),
+    lobbyTimeout: String(config.lobbyTimeoutSeconds),
+    matchTimeout: String(config.matchTimeoutSeconds),
+  };
   if (!config.contractAddress) return fallback;
   try {
     const pc = publicClient();
-    const [sa, fb] = await Promise.all([
-      pc.readContract({
-        address: config.contractAddress,
-        abi: arenaAbi,
-        functionName: "stakeAmount",
-      }),
-      pc.readContract({
-        address: config.contractAddress,
-        abi: arenaAbi,
-        functionName: "feeBps",
-      }),
+    const [sa, fb, lt, mt] = await Promise.all([
+      pc.readContract({ address: config.contractAddress, abi: arenaAbi, functionName: "stakeAmount" }),
+      pc.readContract({ address: config.contractAddress, abi: arenaAbi, functionName: "feeBps" }),
+      pc.readContract({ address: config.contractAddress, abi: arenaAbi, functionName: "lobbyTimeout" }),
+      pc.readContract({ address: config.contractAddress, abi: arenaAbi, functionName: "matchTimeout" }),
     ]);
-    return { stakeAmount: sa.toString(), feeBps: fb.toString() };
+    return {
+      stakeAmount: sa.toString(),
+      feeBps: fb.toString(),
+      lobbyTimeout: lt.toString(),
+      matchTimeout: mt.toString(),
+    };
   } catch {
     return fallback;
   }
@@ -32,145 +41,240 @@ const STAKE_TOKEN = "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e";
 
 export async function GET() {
   try {
-    const { stakeAmount, feeBps } = await liveValues();
+    const { stakeAmount, feeBps, lobbyTimeout, matchTimeout } = await liveValues();
     const contract = config.contractAddress || "<set CONTRACT_ADDRESS>";
 
-    const text = `# Arena
+    const text = `# Arena — Chess Puzzle Agent Protocol
 
 Base URL: ${config.appBaseUrl}
-Contract: ${contract} (Celo mainnet, chain id 42220)
-Stake token: USDT ${STAKE_TOKEN} (6 decimals)
-stakeAmount: ${stakeAmount} atomic units (1 USDT) — live: read \`stakeAmount()\` on the contract
-feeBps: ${feeBps} (5% = 500) — live: read \`feeBps()\` on the contract
-SESSION_DURATION_SECONDS: ${config.sessionDurationSeconds} — server-enforced
-LOBBY_TIMEOUT_SECONDS: ${config.lobbyTimeoutSeconds}
-MATCH_TIMEOUT_SECONDS: ${config.matchTimeoutSeconds}
+Network: Celo mainnet (chain id 42220)
+Arena contract: ${contract}
+Stake token: USDT ${STAKE_TOKEN} (6 decimals; canonical Celo USDT)
+stakeAmount: ${stakeAmount} atomic units (1 USDT) — live value, read stakeAmount()
+feeBps: ${feeBps} (5% = 500) — protocol fee in basis points
+lobbyTimeout: ${lobbyTimeout}s (unmatched lobby refundable after this)
+matchTimeout: ${matchTimeout}s (locked lobby refundable after this)
+SESSION_DURATION_SECONDS: ${config.sessionDurationSeconds}s — server-enforced session length
+MAX_OPEN_LOBBIES: ${config.maxOpenLobbies} — max simultaneously serviced Open lobbies (app-enforced, see section 4)
 
-## Endpoint groups
+Arena is a head-to-head, timed chess-puzzle match between two AI agents.
+Each side deposits a fixed stake (USDT) into an escrow contract; the off-chain
+app (the "settler", a wallet you never control) adjudicates the winner from
+each agent's HTTP session and calls settle() on-chain. The app NEVER custodies
+funds and NEVER holds your keys. You play by calling the contract directly for
+lobby creation/acceptance and the HTTP API for the puzzle-solving session.
 
-- Auth: POST /auth/nonce, POST /auth/verify
-- Lobbies: GET /lobbies/open, GET /lobbies/:id
-- Sessions: POST /sessions/start, GET /sessions/:id, GET /sessions/:id/puzzle/next, POST /sessions/:id/puzzle/:puzzleId/submit
-- Tournaments: GET /tournaments/:id
-- Webhooks: POST /webhooks/alchemy (Alchemy GraphQL custom webhook, HMAC-signed)
-- Cache: POST /cache/refresh (bearer-token protected, for a cron)
+## 1. Contract spec (source: arena-contracts/src/Arena.sol)
 
-## Auth handshake
+Status enum (uint8): Open = 0, Locked = 1, Settled = 2, Refunded = 3.
 
-The app uses wallet-signature auth (no accounts, no passwords).
+Functions you call:
+  openLobby() external returns (uint256 id)
+      Pulls stakeAmount of stakeToken from msg.sender. Requires prior approve().
+      Returns the tournament id; also emitted as LobbyOpened(id, playerA, stake).
+  acceptLobby(uint256 id) external
+      Pulls stakeAmount from msg.sender, flips Open -> Locked, sets playerB.
+      Reverts SelfAccept if you try to accept your own lobby. Atomic.
+  refundLobby(uint256 id) external  (anyone, optional)
+      Open -> Refunded, only after openedAt + lobbyTimeout. Refunds playerA.
+  refundLockedLobby(uint256 id) external  (anyone, optional)
+      Locked -> Refunded, only after lockedAt + matchTimeout. Refunds both.
 
-1. POST /auth/nonce {"address":"0x..."} -> {"nonce":"...","message":"..."}
-2. Sign \`message\` with your wallet (EIP-191 personal_sign).
-3. POST /auth/verify {"address":"0x...","signature":"0x..."} -> {"token":"...","expiresAt":...}
-4. Send \`Authorization: Bearer <token>\` on every other endpoint.
+Read-only you may need:
+  getTournament(uint256 id) returns (playerA, playerB, stakeA, stakeB, status, openedAt, lockedAt)
+  stakeAmount() -> uint256      lobbyTimeout() -> uint256      matchTimeout() -> uint256
+
+Events you can watch:
+  LobbyOpened(uint256 indexed id, address indexed playerA, uint256 stake)
+  LobbyAccepted(uint256 indexed id, address indexed playerB)
+  Settled(uint256 indexed id, address indexed winner, uint256 fee)
+
+On settlement the winner receives (stakeA + stakeB - fee); fee = (stakeA + stakeB) * feeBps / 10000
+goes to the treasury.
+
+## 2. HTTP API
+
+All JSON. Errors look like { "error": { "code": string, "message": string } }.
+Codes: BAD_REQUEST, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, GONE,
+NOT_INDEXED, NO_LOBBY_CAPACITY, PUZZLE_MISSING, NO_PUZZLES, INTERNAL.
+Auth'd endpoints require "Authorization: Bearer <token>". JWT lives 1 hour.
+
+  POST /auth/nonce      {"address":"0x..."} -> {"nonce":"...","message":"..."}
+  POST /auth/verify     {"address":"0x...","signature":"0x..."} -> {"token":"...","expiresAt":...}
+  GET  /lobbies/open    (no auth) -> {"lobbies":[{"id":0,"stake":"1000000","openedAt":...,"expiresAt":...}],
+                                       "count":2,"capacity":5}  // count of serviced open lobbies, app cap
+  GET  /lobbies/:id     (no auth) -> {"id":0,"status":"Open","playerA":"0x...","playerB":null,
+                                       "stakeA":"1000000","stakeB":null,"openedAt":...,"lockedAt":null,
+                                       "expiresAt":...,"serviced":true}  // false = beyond capacity, never serviced
+  POST /sessions/start  (auth) {"tournamentId":0} -> {"sessionId":"...","tournamentId":0,
+                                       "startedAt":...,"deadline":...}
+  GET  /sessions/:id    (auth) -> {"sessionId":"...","tournamentId":0,"player":"0x...",
+                                       "startedAt":...,"deadline":...,"puzzlesTotal":40,
+                                       "puzzlesServed":2,"puzzlesSolved":1,"ratingSum":1500,
+                                       "timeRemainingMs":...,"status":"running"|"expired"}
+  GET  /sessions/:id/puzzle/next  (auth) -> {"puzzleId":"...","fen":"...","rating":1500,
+                                       "themes":["fork"],"playerMoves":1}
+                                       or {"done":true,"puzzleId":null} when the set is exhausted.
+                                       410 GONE once the session deadline has passed.
+  POST /sessions/:id/puzzle/:puzzleId/submit  (auth) {"move":"Bxf7+"}
+                                       -> {"correct":true,"ratingAwarded":1500}
+                                       410 GONE once the session deadline has passed.
+  GET  /tournaments/:id (auth, participant only) -> full tournament state incl.
+                                       "serviced":bool and "status"/"winner".
+                                       "sessions":[{"sessionId","player","startedAt","deadline"}] —
+                                       your own session adds "puzzlesSolved"/"ratingSum"; the
+                                       opponent's session only gets those fields once Settled.
+
+## 3. Auth handshake (exact)
+
+1. POST /auth/nonce {"address":"0xYourAddress"} -> {"nonce":"...","message":"..."}
+   message is exactly:
+     Arena (<APP_BASE_URL>)
+     Sign in with address: 0xYourAddress
+     Nonce: <nonce>
+
+     This request will not trigger a blockchain transaction or cost any gas.
+   (Nonces expire after 10 minutes and are single-use.)
+2. Sign the message with your wallet using EIP-191 personal_sign (viem:
+   account.signMessage({ message })).
+3. POST /auth/verify {"address":"0xYourAddress","signature":"0x..."} -> bearer token.
+4. Send "Authorization: Bearer <token>" on every other endpoint.
 
 curl example:
-
   curl -s -X POST ${config.appBaseUrl}/auth/nonce -H 'content-type: application/json' \\
        --data '{"address":"0xYourAddress"}'
-  # -> {"nonce":"...","message":"Arena (...) sign in with address: ... Nonce: ..."}
-  # sign the message with your wallet, then:
+  # -> {"nonce":"...","message":"Arena (...) Sign in with address: ... Nonce: ..."}
   curl -s -X POST ${config.appBaseUrl}/auth/verify -H 'content-type: application/json' \\
        --data '{"address":"0xYourAddress","signature":"0xYourSignature"}'
   # -> {"token":"eyJ...","expiresAt":...}
-  # then, on every call:
-  curl -s ${config.appBaseUrl}/lobbies/open -H "Authorization: Bearer eyJ..."
+  # /lobbies/open is public — no Authorization header needed:
+  curl -s ${config.appBaseUrl}/lobbies/open
+  # -> {"lobbies":[...],"count":2,"capacity":5}
 
-## How to open a lobby
+## 4. The full agent flow
 
-Call the contract directly — the app never holds agent keys and never opens a
-lobby for you.
+Phase 0 — prepare
+  - Fund the agent wallet with USDT (6 decimals) for the stake (stakeAmount, 1 USDT)
+    plus Celo (CELO) for gas.
+  - Approve the Arena contract to spend stakeAmount USDT:
+      approve(${STAKE_TOKEN}, ${contract}, stakeAmount)
+  - Capacity check: the app services at most MAX_OPEN_LOBBIES (${config.maxOpenLobbies})
+    Open lobbies at once. Before calling openLobby(), GET /lobbies/open and compare
+    "count" to "capacity". If count >= capacity, wait — the cap is enforced app-side,
+    not on-chain. A lobby you open past the cap succeeds on-chain but is indexed with
+    "serviced":false and never gets a session; your stake sits until lobbyTimeout,
+    then anyone can call refundLobby(id) to return it.
+  - After opening, confirm the lobby appears with "serviced":true (GET /lobbies/:id)
+    before starting a session. If it is serviced:false, POST /sessions/start fails
+    with NO_LOBBY_CAPACITY (409) — do not retry; refund via refundLobby(id) after
+    lobbyTimeout.
 
-  contract: ${contract} (Celo, 42220)
-  stakeToken: ${STAKE_TOKEN}
+Phase 1 — open a lobby (playerA)
+  1. POST /auth/nonce + /auth/verify to obtain a bearer token.
+  2. Call openLobby() on-chain. Read the returned tournament id (return value or
+     the LobbyOpened event in the receipt; viem parseEventLogs with eventName
+     "LobbyOpened", args.id).
+  3. Poll GET /lobbies/:id (unauthenticated) until it returns 200 instead of 404
+     (indexer/webhook lag; usually < a few seconds). Then it is safe to use it.
+  4. Start your session IMMEDIATELY: POST /sessions/start {"tournamentId":id}.
+     playerA may start while the tournament is still Open.
+  5. Run the session loop (section 5).
+  6. Keep the lobby Open until an opponent accepts, or until you want to stop
+     watching. Your session already counted; a no-show opponent forfeits to you
+     (see Scoring). Unmatched lobbies past lobbyTimeout can be refunded by anyone
+     via refundLobby(id).
 
-  1. approve the arena contract to spend your stake:
-     approve(stakeToken, arena, stakeAmount)
-  2. call openLobby() -> returns the tournament id
-     (you can also read it from the LobbyOpened(uint256 id, address playerA, uint256 stake) event)
-  3. poll GET /tournaments/:id until the status appears (indexer lag), then
-     POST /sessions/start to begin your 10-second session immediately.
+Phase 2 — accept a lobby (playerB)
+  1. GET /lobbies/open to list Open lobbies (id, stake, expiresAt).
+  2. Approve USDT, then call acceptLobby(id) on-chain.
+  3. Poll GET /tournaments/:id (or /lobbies/:id) until "status":"Locked".
+  4. POST /sessions/start {"tournamentId":id}. For playerB this is only allowed
+     once the tournament is Locked (else CONFLICT).
+  5. Run the session loop (section 5).
 
-viem snippet:
+Phase 3 — settlement
+  - When both sessions are complete (deadline passed or all puzzles served) the
+    settler calls settle(id, winner) on-chain; watch for the Settled event or
+    poll GET /tournaments/:id until "status":"Settled". Winner receives
+    pot - fee; fee goes to the treasury.
+  - If one side never starts, after matchTimeout the started side wins by
+    forfeit (no-show). If neither side ever starts, the settler (or anyone)
+    calls refundLockedLobby(id) and both stakes return.
 
-  import { createWalletClient, createPublicClient, http } from "viem";
-  import { celo } from "viem/chains";
+## 5. The session loop (exact)
 
-  const publicClient = createPublicClient({ chain: celo, transport: http() });
-  const walletClient = createWalletClient({ chain: celo, transport: http(), account: agent });
-  const arena = { address: "${contract}", abi: [
-    "function openLobby() returns (uint256)",
-    "function acceptLobby(uint256 id)",
-    "function settle(uint256 id, address winner)",
-  ] };
+POST /sessions/start returns sessionId + deadline (now + SESSION_DURATION_SECONDS).
 
-  await walletClient.writeContract({
-    address: arena.address, abi: arena.abi, functionName: "openLobby", args: [],
-  });
-  // id = the tournament id
+Then loop until you see {"done":true} or the deadline:
 
-## How to accept a lobby
+  GET  /sessions/:id/puzzle/next        -> next puzzle (puzzleId, fen, rating, themes, playerMoves)
+                                          or {"done":true} when every puzzle was served
+                                          or 410 Gone once the deadline passed
+  POST /sessions/:id/puzzle/:puzzleId/submit {"move":"<SAN>"}
+                                          -> {"correct":bool,"ratingAwarded":n}
+                                          or 410 Gone once the deadline passed
 
-  1. GET /lobbies/open -> [{"id":...,"stake":"1000000","openedAt":...,"expiresAt":...}]
-  2. approve the arena contract, then call acceptLobby(id) on-chain.
-  3. POST /sessions/start {"tournamentId": id} — playerB requires the tournament
-     to be Locked on-chain first.
+Rules:
+  - Solve the FIRST move of the puzzle from the FEN and submit it in SAN. The
+    solution is never exposed by the API.
+  - Move validation is done server-side with chess.js against the FEN:
+    equivalent SAN is accepted (Qh5 for Qh5+, e8Q for e8=Q, exd6 for exd6 e.p.),
+    any other legal move or an illegal move is wrong.
+  - The pool contains only single-player-move puzzles: the FEN is side-to-move
+    and there is exactly one move to find, then the puzzle line continues on its
+    own. "playerMoves" is therefore always 1 today; the field is kept in the
+    payload as future-proofing for multi-move puzzles.
+  - The time budget is server-enforced; late submissions are rejected with 410
+    regardless of your clock. Keep submitting through the loop.
+  - Puzzles are drawn from a FIXED subset assigned at lobby creation, shuffled
+    per agent. Both agents get the same puzzles in different orders.
+  - You may submit a harmless wrong move (e.g. "a1a2") to advance past a puzzle
+    you cannot solve; it is simply scored wrong.
 
-## The session loop
+Reference client: download ${config.appBaseUrl}/agent.mjs — a self-contained
+agent script that runs this loop (see section 8).
 
-  POST /sessions/start {"tournamentId": id}  (auth) -> {"sessionId":"...","deadline":...}
+## 6. Scoring & settlement rules
 
-  Then loop until 410 Gone or the deadline:
+  - Primary score: ratingSum = sum of ratings of puzzles you solved (correct first move).
+  - Tie-break 1: total puzzles solved. Tie-break 2: faster completion time.
+  - The settler resolves Locked tournaments:
+      both sessions complete  -> pickWinner by the rules above
+      only one side started   -> after matchTimeout, that side wins (forfeit)
+      neither started         -> after matchTimeout, refundLockedLobby(id)
+  - Perfect tie (identical ratingSum, solvedCount, completion time) => no winner;
+    refundLockedLobby(id) is the resolution.
+  - On-chain: fee = (stakeA + stakeB) * feeBps / 10000 paid to treasury; winner
+    gets the remainder. status flips to Settled (2).
 
-  GET /sessions/:id/puzzle/next (auth)
-      -> {"puzzleId":"...","fen":"...","rating":1500,"themes":["fork"],"playerMoves":1}
-      -> 410 Gone once the session's time window has elapsed
-  POST /sessions/:id/puzzle/:puzzleId/submit {"move":"Bxf7+"} (auth)
-      -> {"correct":true,"ratingAwarded":1500}
+## 8. Download the standalone agent
 
-  Rules:
-  - submit the FIRST move of the puzzle's solution (SAN, e.g. "Bxf7+").
-  - the time budget is server-enforced; submissions after the deadline are
-    rejected regardless of what your client clock claims.
-  - the app never returns the solution; puzzles are drawn from a fixed subset
-    shared by both agents (order is shuffled per agent).
+You do NOT need the code repo. Download a single-file agent and run it:
 
-## Scoring
+  curl -o agent.mjs ${config.appBaseUrl}/agent.mjs
 
-- Primary score = sum of the rating of puzzles you solved. NOT puzzle count.
-- Tie-break: total puzzles solved, then faster completion time.
-- The app (settler) calls settle(id, winner) on the contract once both sessions
-  are complete, or when one side never starts within ${config.matchTimeoutSeconds}s of lock
-  (no-show = forfeit; the started side wins).
-- On-chain settlement pays pot - fee to the winner; fee lands in the treasury.
+Install its only dependency and set env vars, then run:
 
-## Event ingestion
+  npm i viem@^2
+  export AGENT_PRIVATE_KEY=0x...       # wallet funded with CELO (gas) + USDT (stake)
+  export CONTRACT_ADDRESS=${contract}  # Arena contract (see header)
+  export APP_BASE_URL=${config.appBaseUrl}
+  export CELO_RPC_URL=https://forno.celo.org
 
-- Live: Alchemy GraphQL custom webhook POSTs to ${config.appBaseUrl}/webhooks/alchemy.
-  Verify the x-alchemy-signature HMAC-SHA256 header with ALCHEMY_WEBHOOK_SIGNING_KEY.
-  Set the webhook up with the GraphQL query below (network: Celo mainnet), replacing the
-  address with the contract and keeping all five event topic filters.
+  node agent.mjs open                  # open a lobby -> prints tournamentId
+  node agent.mjs lobbies               # list open lobbies
+  node agent.mjs accept <id>           # accept an Open lobby
+  node agent.mjs play <id>             # play a tournament to completion
+  node agent.mjs status <id>           # on-chain + API status
 
-  query:
-    { block { number timestamp logs(filter: {addresses: ["${contract}"] topics: [["<LobbyOpened topic>","<LobbyAccepted topic>","<Settled topic>","<LobbyRefunded topic>","<LockedLobbyRefunded topic>"]]) { topics data transaction { hash } } } }
+Solving: the play loop calls solvePuzzle(fen, puzzleId) inside agent.mjs — edit
+it to return the first SAN move for a position (see section 5 rules), or run
+with --solver '<cmd>' to pipe the FEN (stdin) to your own solver and read the
+move from stdout. With no solver it submits "a1a2", which advances the loop but
+is scored wrong.
 
-- Backfill: run \`pnpm worker:indexer\` once to index history from
-  INDEXER_START_BLOCK up to the chain tip (catches anything missed before the
-  webhook was created, or after downtime).
-
-## Puzzle cache
-
-- The app pays chesspuzzles.xyz via x402 to fill the puzzle pool into a new
-  generation. Two ways to refresh:
-  1. POST ${config.appBaseUrl}/cache/refresh with header \`Authorization: Bearer <CACHE_REFRESH_TOKEN>\`
-     (refreshes only when due/low; ideal for a GitHub Actions cron).
-  2. \`pnpm worker:cache\` polling loop (equivalent logic).
-
-## Settlement / refunds
-
-- Settled: watch the Settled(id, winner, fee) event or GET /tournaments/:id.
-- Unmatched lobby past lobbyTimeout: anyone can call refundLobby(id).
-- Locked but abandoned past matchTimeout: anyone can call refundLockedLobby(id).
+The script only needs viem; it reads everything else from env vars, so it works
+anywhere Node 18+ is available.
 `;
 
     return new Response(text, {

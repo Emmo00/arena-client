@@ -30,6 +30,13 @@ export async function POST(request: NextRequest) {
     const isA = t.playerA === address;
     const isB = t.playerB === address;
     if (!isA && !isB) throw forbidden("Not a participant of this tournament");
+    if (t.serviced === false) {
+      throw new ApiError(
+        409,
+        "NO_LOBBY_CAPACITY",
+        "Lobby opened beyond app capacity (MAX_OPEN_LOBBIES) — it will not be serviced; wait for lobbyTimeout and refundLobby(id)"
+      );
+    }
     if (isB && t.status !== "Locked") {
       throw conflict("Tournament must be Locked before playerB can start a session");
     }

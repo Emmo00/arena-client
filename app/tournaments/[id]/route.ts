@@ -26,6 +26,20 @@ export async function GET(request: NextRequest, { params }: Params) {
     const sessions = await dbCollections().sessions();
     const sessionDocs = await sessions.find({ tournamentId: id }).toArray();
 
+    // Until the tournament is Settled, only expose the requesting player's own
+    // session detail; the opponent's puzzlesSolved/ratingSum stay hidden so you
+    // cannot scout their progress mid-match. Once Settled, both are shown.
+    const settled = t.status === "Settled";
+    const sessionsPublic = sessionDocs.map((s) => ({
+      sessionId: s._id.toString(),
+      player: s.player,
+      startedAt: s.startedAt,
+      deadline: s.deadline,
+      ...(settled || s.player === address
+        ? { puzzlesSolved: s.solvedCount, ratingSum: s.ratingSum }
+        : {}),
+    }));
+
     return json({
       id: t._id,
       status: t.status,
@@ -39,14 +53,8 @@ export async function GET(request: NextRequest, { params }: Params) {
       winner: t.winner,
       fee: t.fee,
       settleTx: t.settleTx,
-      sessions: sessionDocs.map((s) => ({
-        sessionId: s._id.toString(),
-        player: s.player,
-        startedAt: s.startedAt,
-        deadline: s.deadline,
-        puzzlesSolved: s.solvedCount,
-        ratingSum: s.ratingSum,
-      })),
+      serviced: t.serviced ?? true,
+      sessions: sessionsPublic,
     });
   } catch (e) {
     return handleApiError(e);

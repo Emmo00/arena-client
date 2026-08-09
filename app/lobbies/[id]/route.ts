@@ -27,6 +27,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
       openedAt: t.openedAt,
       lockedAt: t.lockedAt,
       expiresAt: t.openedAt + config.lobbyTimeoutSeconds,
+      serviced: t.serviced ?? true,
     });
   } catch (e) {
     return handleApiError(e);

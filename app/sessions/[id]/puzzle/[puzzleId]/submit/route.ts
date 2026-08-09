@@ -67,7 +67,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       throw new ApiError(409, "PUZZLE_MISSING", "Cached puzzle no longer available");
     }
 
-    const correct = isCorrectMove(move, puzzle.moves);
+    const correct = isCorrectMove(move, puzzle.moves, puzzle.fen);
     const ratingAwarded = correct ? puzzle.rating : 0;
     const elapsedMs = now - s.startedAt;
 

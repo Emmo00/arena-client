@@ -49,7 +49,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       fen: puzzle.fen,
       rating: puzzle.rating,
       themes: puzzle.themes,
-      playerMoves: playerMovesOf(puzzle.moves),
+      playerMoves: playerMovesOf(puzzle.moves, puzzle.fen),
     });
   } catch (e) {
     return handleApiError(e);
