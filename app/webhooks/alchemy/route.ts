@@ -3,6 +3,7 @@ import { decodeEventLog } from "viem";
 import { arenaAbi } from "@/lib/abi";
 import { config } from "@/lib/config";
 import { handleApiError } from "@/lib/http";
+import { logger } from "@/lib/logger";
 import { processArenaEvent, type ArenaEventName } from "@/lib/events";
 
 export const dynamic = "force-dynamic";
@@ -55,6 +56,9 @@ export async function POST(request: Request) {
     const rawBody = await request.text();
     const signature = request.headers.get("x-alchemy-signature") ?? "";
     if (!isValidSignature(rawBody, signature)) {
+      logger.warn("webhook", "rejected: invalid signature", undefined, {
+        hasSignature: signature.length > 0,
+      });
       return new Response(
         JSON.stringify({ error: { code: "UNAUTHORIZED", message: "Invalid signature" } }),
         { status: 401, headers: { "content-type": "application/json" } }
@@ -64,6 +68,7 @@ export async function POST(request: Request) {
     const payload = JSON.parse(rawBody) as GraphqlPayload;
     const block = payload.event?.data?.block;
     if (!block?.logs?.length) {
+      logger.info("webhook", "no logs in payload");
       return new Response(JSON.stringify({ ok: true, processed: 0 }), {
         headers: { "content-type": "application/json" },
       });
@@ -95,6 +100,11 @@ export async function POST(request: Request) {
       });
       processed++;
     }
+
+    logger.info("webhook", "processed payload", {
+      block: block.number ?? "?",
+      processed,
+    });
 
     return new Response(JSON.stringify({ ok: true, processed }), {
       headers: { "content-type": "application/json" },

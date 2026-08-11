@@ -6,6 +6,7 @@ import { config } from "./config";
 import { dbCollections } from "./db";
 import { ensureUser } from "./leaderboard";
 import { ApiError, unauthorized } from "./http";
+import { logger } from "./logger";
 
 const NONCE_TTL_MS = 10 * 60 * 1000;
 const TOKEN_TTL_SECONDS = 60 * 60; // 1h
@@ -31,6 +32,7 @@ export async function issueNonce(addressRaw: string): Promise<{ nonce: string; m
     { $set: { nonce, message, expiresAt: Date.now() + NONCE_TTL_MS } },
     { upsert: true }
   );
+  logger.info("auth", "nonce issued", { address });
   return { nonce, message };
 }
 
@@ -43,10 +45,16 @@ export async function verifySignatureAndIssueToken(
   const address = getAddress(addressRaw);
   const nonces = await dbCollections().nonces();
   const doc = await nonces.findOne({ _id: address });
-  if (!doc) throw unauthorized("No pending nonce for address");
+  if (!doc) {
+    logger.warn("auth", "sign-in rejected: no pending nonce", undefined, {
+      address,
+    });
+    throw unauthorized("No pending nonce for address");
+  }
 
   if (doc.expiresAt < Date.now()) {
     await nonces.deleteOne({ _id: address });
+    logger.warn("auth", "sign-in rejected: nonce expired", { address });
     throw unauthorized("Nonce expired");
   }
 
@@ -54,13 +62,22 @@ export async function verifySignatureAndIssueToken(
   try {
     recovered = await recoverMessageAddress({ message: doc.message, signature });
   } catch {
+    logger.warn("auth", "sign-in rejected: signature recovery failed", {
+      address,
+    });
     throw unauthorized("Invalid signature");
   }
 
   // One-time use regardless of outcome.
   await nonces.deleteOne({ _id: address });
 
-  if (getAddress(recovered) !== address) throw unauthorized("Signature does not match address");
+  if (getAddress(recovered) !== address) {
+    logger.warn("auth", "sign-in rejected: recovered address mismatch", {
+      address,
+      recovered: getAddress(recovered),
+    });
+    throw unauthorized("Signature does not match address");
+  }
 
   const token = await new SignJWT({})
     .setProtectedHeader({ alg: "HS256" })
@@ -71,6 +88,7 @@ export async function verifySignatureAndIssueToken(
     .sign(secret());
 
   const { username: finalUsername } = await ensureUser(address, username);
+  logger.info("auth", "sign-in ok", { address, username: finalUsername });
 
   return { token, expiresAt: Date.now() + TOKEN_TTL_SECONDS * 1000, username: finalUsername };
 }
@@ -85,6 +103,7 @@ export async function verifyToken(token: string): Promise<`0x${string}`> {
     return getAddress(payload.sub);
   } catch (e) {
     if (e instanceof ApiError) throw e;
+    logger.warn("auth", "token verification failed", undefined, { reason: String(e) });
     throw unauthorized();
   }
 }
