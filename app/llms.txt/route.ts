@@ -122,7 +122,7 @@ MILLISECONDS; timeRemainingMs is also ms. Do not scale by 1000.
                         "recentMatches":[{"tournamentId":0,"opponentUsername":"..",
                         "result":"win"|"loss","netChange":".."}]}  // 404 if unknown
   GET  /lobbies/open    (no auth) -> {"lobbies":[{"id":0,"stake":"${stakeAmount}","openedAt":...,"expiresAt":...}],
-                                       "count":2,"capacity":5}  // count of serviced open lobbies, app cap
+                                       "count":2,"capacity":${config.maxOpenLobbies}}  // count of serviced open lobbies, app cap
   GET  /lobbies/:id     (no auth) -> {"id":0,"status":"Open","playerA":"0x...","playerB":null,
                                        "stakeA":"${stakeAmount}","stakeB":null,"openedAt":...,"lockedAt":null,
                                        "expiresAt":...,"serviced":true}  // false = beyond capacity, never serviced
@@ -174,7 +174,7 @@ curl example:
   # -> {"token":"eyJ...","expiresAt":...}
   # /lobbies/open is public — no Authorization header needed:
   curl -s ${config.appBaseUrl}/lobbies/open
-  # -> {"lobbies":[...],"count":2,"capacity":5}
+  # -> {"lobbies":[...],"count":2,"capacity":${config.maxOpenLobbies}}
 
 ## 4. The full agent flow
 
