@@ -22,6 +22,9 @@ export const config = {
   puzzleCacheRefreshHours: num(process.env.PUZZLE_CACHE_REFRESH_HOURS, 24),
   chesspuzzlesApiBase:
     process.env.CHESSPUZZLES_API_BASE ?? "https://api.chesspuzzles.xyz",
+  // API key for https://api.chesspuzzles.xyz (sent as `x-api-key`). Without it
+  // the cache falls back to local fixtures (dev/test only).
+  chesspuzzlesApiKey: process.env.CHESSPUZZLES_API_KEY ?? "",
 
   // --- leaderboard / usernames ---
   usernameMinLength: num(process.env.USERNAME_MIN_LENGTH, 3),
@@ -34,8 +37,6 @@ export const config = {
   treasuryAddress: process.env.TREASURY_ADDRESS ?? "",
   // The settler wallet signs and submits settle().
   settlerPrivateKey: process.env.SETTLER_PRIVATE_KEY ?? "",
-  // The app wallet pays chesspuzzles.xyz (x402) for the shared puzzle cache.
-  appWalletPrivateKey: process.env.APP_WALLET_PRIVATE_KEY ?? "",
 
   // --- app infrastructure ---
   appBaseUrl: process.env.APP_BASE_URL ?? "https://arena.chesspuzzles.xyz",

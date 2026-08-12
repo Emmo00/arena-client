@@ -1,7 +1,4 @@
 import { Chess } from "chess.js";
-import { x402Client, wrapFetchWithPayment } from "@x402/fetch";
-import { ExactEvmScheme } from "@x402/evm";
-import { privateKeyToAccount } from "viem/accounts";
 import { config } from "./config";
 import { dbCollections, type PuzzleDoc } from "./db";
 import { fixturePuzzles } from "./fixtures";
@@ -59,20 +56,16 @@ export async function sampleSubset(count: number): Promise<string[]> {
   return docs.map((d) => d._id);
 }
 
-async function fetchFromApiViaX402(count: number): Promise<RawPuzzle[]> {
-  const account = privateKeyToAccount(config.appWalletPrivateKey as `0x${string}`);
-  const client = new x402Client().register(
-    "eip155:42220",
-    new ExactEvmScheme(account, { rpcUrl: config.celoRpcUrl })
-  );
-  const payFetch = wrapFetchWithPayment(fetch, client);
-
+async function fetchFromApi(count: number): Promise<RawPuzzle[]> {
   const url = `${config.chesspuzzlesApiBase}/puzzles?playerMoves=1&count=${count}`;
-  const res = await payFetch(url, {
-    headers: { accept: "application/json" },
+  const res = await fetch(url, {
+    headers: {
+      accept: "application/json",
+      "x-api-key": config.chesspuzzlesApiKey,
+    },
   });
   if (!res.ok) {
-    throw new Error(`chesspuzzles x402 fetch failed: ${res.status} ${res.statusText}`);
+    throw new Error(`chesspuzzles API fetch failed: ${res.status} ${res.statusText}`);
   }
   const data = (await res.json()) as { puzzles?: RawPuzzle[] };
   if (!Array.isArray(data.puzzles)) {
@@ -113,29 +106,29 @@ async function pruneOldGenerations(currentGen: number) {
 }
 
 /**
- * Refill the puzzle pool into a brand-new generation (full replace). Uses paid
- * x402 fetching when an app wallet key is configured, otherwise seeds from local
- * fixtures (dev/test only). Never deletes puzzles still referenced by an
+ * Refill the puzzle pool into a brand-new generation (full replace). Uses the
+ * chesspuzzles API (x-api-key) when a key is configured, otherwise seeds from
+ * local fixtures (dev/test only). Never deletes puzzles still referenced by an
  * in-progress (Open/Locked) tournament.
  */
-export async function refreshCache(): Promise<{ mode: "x402" | "fixtures"; inserted: number }> {
+export async function refreshCache(): Promise<{ mode: "api" | "fixtures"; inserted: number }> {
   const currentGen = await getCurrentGeneration();
   const nextGen = currentGen + 1;
 
-  if (config.appWalletPrivateKey) {
+  if (config.chesspuzzlesApiKey) {
     try {
       const per = 100; // API clamps count to 100
       const batches = Math.ceil(config.puzzleCacheSize / per);
       const docs: Array<Omit<PuzzleDoc, "generation">> = [];
       for (let i = 0; i < batches; i++) {
-        const raw = await fetchFromApiViaX402(per);
+        const raw = await fetchFromApi(per);
         docs.push(...raw.map(normalize));
       }
       await bulkInsert(docs, nextGen);
       await pruneOldGenerations(nextGen);
-      return { mode: "x402", inserted: docs.length };
+      return { mode: "api", inserted: docs.length };
     } catch (e) {
-      console.error("[cache] x402 refresh failed, falling back to fixtures:", e);
+      console.error("[cache] API refresh failed, falling back to fixtures:", e);
     }
   }
 
@@ -179,7 +172,7 @@ export async function setLastCacheRefresh(ts: number) {
  */
 export async function maybeRefreshCache(): Promise<{
   refreshed: boolean;
-  mode: "x402" | "fixtures";
+  mode: "api" | "fixtures";
   inserted: number;
   pool: number;
 }> {

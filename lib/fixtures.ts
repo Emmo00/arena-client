@@ -1,7 +1,7 @@
-// Local fixture puzzles used ONLY when paid x402 fetching is unavailable
-// (local dev, e2e harness). Production purchases puzzles from
-// https://api.chesspuzzles.xyz via x402. Fixtures never leak out of the server:
-// `moves` stays in the DB and is stripped from every HTTP response.
+// Local fixture puzzles used ONLY when the chesspuzzles API (x-api-key) is
+// unavailable (local dev, e2e harness). Production fetches from
+// https://api.chesspuzzles.xyz with an API key. Fixtures never leak out of the
+// server: `moves` stays in the DB and is stripped from every HTTP response.
 export interface FixturePuzzle {
   puzzleid: string;
   fen: string;

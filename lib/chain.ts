@@ -31,10 +31,6 @@ export function settlerWallet(): SettlerWallet {
   return makeSettlerWallet();
 }
 
-export function appWalletAccount() {
-  return privateKeyToAccount(config.appWalletPrivateKey as `0x${string}`);
-}
-
 export const arenaEvents = {
   lobbyOpened: parseAbiItem(
     "event LobbyOpened(uint256 indexed id, address indexed playerA, uint256 stake)"
