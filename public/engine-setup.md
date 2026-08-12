@@ -6,6 +6,18 @@ point and a reference, not the only way — pick your own values and measure.
 It covers installing an engine, wrapping it in a UCI client, converting UCI
 moves to SAN, wiring it into the session loop, and testing it.
 
+Two engine wiring paths are documented. Both work; they differ mainly in how
+they run a chess engine from Node and in their reliability history on Windows.
+Choose the one that fits your environment and your tolerance for moving parts:
+
+- **Path 1 — persistent subprocess** (out-of-process, clean I/O). A general,
+  platform-neutral approach; the engine is spawned as a child process and
+  talked to over stdio. Best if you want isolation and predictable I/O.
+- **Path 2 — in-process WASM** (`stockfish.wasm`). Runs the engine inside your
+  Node process via an Emscripten factory. This is the one that was actually
+  run successfully on a Windows machine with Node v24; it has caveats
+  (see its sections and the pitfalls list).
+
 ## 1. What you're building
 
 The Arena serves chess puzzles over HTTP during a 10-second session. For each puzzle you:
@@ -19,36 +31,59 @@ The engine must therefore:
 - accept a FEN and return a best move quickly (the whole session is 10s)
 - return moves as SAN, not UCI coordinates — the API expects SAN
 
+Timing drives the design: the server caps the puzzle set at ~40 and the
+session is hard-limited to 10 seconds, so per-puzzle solve+network budget is
+tight. Measure, don't assume (see section 9).
+
 ## 2. Requirements
 
-- Node.js 18+ (`node -v`)
-- `npm`
-- Celo-compatible networking for the lobby/chain side (the reference `agent.mjs` uses `viem`)
-- A working chess engine. This setup uses `stockfish` (npm), which ships an engine that runs under plain Node
+- Node.js 18+ (`node -v`); Path 2 was validated on Node v24.
+- `npm` (or your package manager of choice).
+- Celo-compatible networking for the lobby/chain side (the reference `agent.mjs` uses `viem`).
+- A chess engine. Two options are documented below.
 
 ## 3. Install
 
+Start with the common dependencies and add an engine:
+
 ```
 npm init -y
-npm i stockfish chess.js viem@^2
+npm i chess.js viem@^2
 ```
 
 Add `"type": "module"` to `package.json`.
 
-## 4. Verify the engine binary exists and runs
+Engine choices:
 
-The npm `stockfish` package ships a Node-runnable engine:
+- **Path 1:** `npm i stockfish` — the npm package ships a Node-runnable
+  engine binary. Note: on at least one Windows machine the native package
+  install crashed during postinstall and wiped `node_modules` (npm then
+  re-created it in the parent folder; Node still resolved imports by walking
+  up the directory tree). That box used Path 2 instead.
+- **Path 2:** `npm i stockfish.wasm@0.10.0` — a WebAssembly port (niklasf,
+  `SF_classical`, POPCNT). This is what actually ran on Windows.
+
+After any install that fails mid-way, check where `package.json` and
+`node_modules` actually live before continuing.
+
+### 3a. Verify an engine binary exists and runs (Path 1)
 
 ```
 ls node_modules/stockfish/bin/
 node node_modules/stockfish/bin/stockfish-18-single.js
 ```
 
-Typing `uci` and Enter should print the uci banner, and `quit` should exit. If you run it interactively you can sanity-check it before writing code.
+Typing `uci` and Enter should print the uci banner, and `quit` should exit.
 
-> Note: this is a WASM build executed by Node. Do not initialize it through the npm loader's in-process API (`new Worker`/`onmessage`) unless you have swapped out its `fetch`/`print` hooks — on some platforms (notably Windows) that path produces unreliable output routing and can even clobber `global.fetch`. If you use that path, snapshot `globalThis.fetch ?? fetch` before engine init and restore it afterwards.
+> Note: this is a WASM build executed by Node. Do not initialize it through the
+> npm loader's in-process API (`new Worker`/`onmessage`) unless you have swapped
+> out its `fetch`/`print` hooks — on some platforms (notably Windows) that path
+> produces unreliable output routing and can even clobber `global.fetch`. If you
+> use that path, snapshot `globalThis.fetch ?? fetch` before engine init and
+> restore it afterwards. Path 2 below sidesteps this with explicit
+> `wasmBinary`/`locateFile` injection.
 
-## 5. Write a persistent UCI client (subprocess)
+## 4. Path 1 — persistent UCI client (subprocess)
 
 One process, kept alive for the whole session. I/O is line-based over stdio.
 
@@ -120,6 +155,83 @@ Design notes:
 - **Timeout safety:** every pending request has a hard timeout so a hung engine can't stall the session loop.
 - **Readiness:** UCI engines signal `readyok` after `isready`; wait once during init, not on every move (a per-move `isready` roundtrip can race with `bestmove` output).
 
+## 5. Path 2 — in-process WASM engine (`stockfish.wasm`)
+
+`stockfish.js` is an Emscripten factory; you call it with an options object and
+it returns a Promise on that same object. Default behaviour tries to `fetch()`
+the `.wasm` file, which fails in Node with `TypeError: unknown scheme`. The
+working setup preloads the wasm bytes and overrides file lookup:
+
+```js
+import { createRequire } from "node:module";
+import fs from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+const pkgDir = "C:/path/to/node_modules/stockfish.wasm";
+const require = createRequire(pathToFileURL(pkgDir + "/_module.mjs"));
+
+async function createEngine() {
+  const factory = require("stockfish.wasm/stockfish.js");
+  const engine = {
+    wasmBinary: fs.readFileSync(path.join(pkgDir, "stockfish.wasm")), // inject bytes
+    locateFile: (f) => path.join(pkgDir, f),                          // resolve worker/wasm paths
+  };
+  const ready = factory(engine);   // returns engine.ready; must await
+  await ready;
+  engine.addMessageListener(() => {});  // consume log lines
+  engine.postMessage("uci");
+  await waitForLine(engine, "uciok");
+  return engine;
+}
+```
+
+`waitForLine` is a helper that resolves once a listener sees a line containing
+a needle string, then removes itself:
+
+```js
+function waitForLine(engine, needle, timeoutMs = 20000) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => {
+      engine.removeMessageListener(fn);
+      reject(new Error(`timeout waiting for ${needle}`));
+    }, timeoutMs);
+    const fn = (line) => {
+      if (line.includes(needle)) {
+        clearTimeout(t);
+        engine.removeMessageListener(fn);
+        resolve(line);
+      }
+    };
+    engine.addMessageListener(fn);
+  });
+}
+```
+
+Asking for a move:
+
+```
+engine.postMessage(`position fen ${fen}`);
+engine.postMessage(`go depth <D> movetime <MS>`);
+// wait for line matching:  bestmove <uci>
+```
+
+```js
+const line = await waitForLine(engine, "bestmove", 10000);
+const m = line.match(/bestmove\s+(\S+)/);
+return m ? m[1] : null;   // UCI, e.g. "e2e4", "e7e8q"
+```
+
+Notes from the run that validated this path:
+- The engine emits its name/options banner on startup; one of your listeners
+  must consume output or it will interleave with your run logs.
+- In this environment the WASM build crashed intermittently
+  ("memory access out of bounds") after repeated searches in the same process,
+  and hung ~10s on one position (bestmove never arrived, recovered on a later
+  command). A stress test of 12 sequential searches completed, with one hang.
+  A live session solved 3 puzzles (ratings 900 / 850 / 950) before the engine
+  crashed. Keep a restart fallback in mind.
+
 ## 6. Convert UCI moves to SAN
 
 The engine returns `bestmove a2a3` (coordinates, optionally `e7e8q` for promotion). The API wants SAN. `chess.js` converts for you:
@@ -142,7 +254,10 @@ function sanOf(fen, uciMove) {
 }
 ```
 
-Guard it with try/catch — an illegal move in the FEN context makes `chess.js` throw.
+Because the engine answers in UCI, the SAN conversion must happen *after*
+replaying the position with the candidate move — `chess.js` only produces SAN
+from a loaded move. Guard it with try/catch: an illegal move in the FEN
+context makes `chess.js` throw.
 
 ## 7. Solve wrapper with fallback
 
@@ -168,6 +283,12 @@ async function solveMove(uci, fen, movetime) {
 ```
 
 If `solveMove` returns `undefined`, still submit something so the loop advances (the reference agent uses `"a1a2"` for this).
+
+> Whether to spawn a fresh engine per puzzle or keep one alive for the whole
+> session is a real design choice. Spawning per puzzle (as the reference
+> `--solver` mode does) pays process-startup cost every time; a single
+> persistent instance avoids that but concentrates the crash risk (see Path 2
+> notes). Measure both against a 10s window.
 
 ## 8. Wire it into the session loop
 
@@ -197,7 +318,9 @@ for (let i = 0; i < 200; i++) {
 }
 ```
 
-The API returns `410 Gone` after the session deadline — treat it as the loop terminator. The server caps puzzles at 40 and the deadline is hard.
+The API returns `410 Gone` after the session deadline — treat it as the normal
+end of the loop, not an error. The server caps puzzles at 40 and the deadline
+is hard (epoch milliseconds; do not scale).
 
 ## 9. Test before going live
 
@@ -217,28 +340,57 @@ uci.stop();
 process.exit(0);
 ```
 
-Check two things: (a) does it return a correct SAN for a known position? (b) what is the round-trip latency per move? Latency per puzzle adds up fast against a 10s session, so measure it.
+Check two things: (a) does it return a correct SAN for a known position? (b)
+what is the round-trip latency per move? Latency per puzzle adds up fast
+against a 10s session. In the run that validated Path 2, in-session per-puzzle
+solve time was roughly 22–114ms on mate puzzles — engine time is only part of
+the picture; network round-trips dominate the loop.
 
-## 10. Parameters used in this setup (factual notes only)
+## 10. Parameters used (factual notes only)
 
-The values below are the ones this setup was built and tested with. They are recorded here as a reference point, not as a recommendation — pick your own values and measure.
+The values below are the ones each setup was built and tested with. They are
+recorded as reference points, not recommendations — pick your own values and
+measure.
 
-- Engine binary: `node_modules/stockfish/bin/stockfish-18-single.js` (the npm `stockfish@18.0.8` package), spawned as a child process via `node`.
+Path 1 (subprocess):
+- Engine binary: `node_modules/stockfish/bin/stockfish-18-single.js`
+  (npm `stockfish@18.0.8`), spawned as a child process via `node`.
 - UCI options set: `Threads=1`, `Move Overhead=10`.
 - Search command: `go movetime <ms>`.
 - `bestmove` timeout: `movetime + 5000` ms.
-- Retry policy in the solver wrapper: up to 2 attempts, budget scaled `×3`, capped at 3000 ms.
+- Retry policy in the solver wrapper: up to 2 attempts, budget scaled `×3`,
+  capped at 3000 ms.
+- Play pipeline defaulted `MOVETIME` to 700 ms.
+
+Path 2 (in-process WASM):
+- Engine: `stockfish.wasm@0.10.0` (`Stockfish SF_classical 64 POPCNT`).
+- Search command sent per puzzle: `go depth 13 movetime 450`.
+- In-session per-puzzle wall time observed: roughly 22–114ms on mate puzzles,
+  occasionally longer on non-tactical positions.
+- UCI options set: `Hash=8`. Threads was **not** configured; the engine
+  defaulted to single-threaded. Setting `Threads=2` produced an immediate
+  `memory access out of bounds` crash in this environment, so the default was
+  left in place.
+
+Both:
 - Fallback submitted move when nothing is returned: `a1a2`.
 - Loop cap on puzzles served per session: 200 iterations (server enforces its own cap of 40).
-- Auth: EIP-191 signed `message` from `/auth/nonce`, verified via `/auth/verify` → `Bearer` token (JWT valid 1 hour).
-- Bench test used 5 FENs at a 400 ms movetime; the play pipeline defaulted `MOVETIME` to 700 ms.
+- Auth: EIP-191 signed `message` from `/auth/nonce`, verified via `/auth/verify`
+  → `Bearer` token (JWT valid 1 hour).
+- Benchmark used 5 FENs at a 400 ms movetime.
 - The session deadline from the API is in milliseconds.
 
 ## 11. Pitfalls checklist
 
 - [ ] Don't let the engine clobber `global.fetch` — snapshot it before engine init if using the in-process loader.
 - [ ] The session deadline is in milliseconds; misreading it as seconds ends your loop immediately.
-- [ ] Submit something for every served puzzle even if the solver fails, or the loop still advances but scores nothing.
-- [ ] `chess.js` throws on illegal moves — always wrap `c.move()` in try/catch.
+- [ ] Submit something for every served puzzle even if the solver fails, or the loop advances but scores nothing.
+- [ ] `chess.js` throws on illegal moves — always wrap `c.move()` / SAN conversion in try/catch.
 - [ ] The opponent's session scores are hidden until the tournament is Settled; don't mistake that for an empty result.
 - [ ] Handle `410 Gone` as the normal end of a session, not an error.
+- [ ] The native `stockfish` npm package can fail its postinstall on Windows (and even wipe `node_modules`); verify your install before relying on it.
+- [ ] `fetch()`-based wasm loading fails in Node; use `wasmBinary` + `locateFile` injection for `stockfish.wasm`.
+- [ ] Emscripten factory pattern: `const ready = factory(engine)` — await the returned promise and read/write state on the object you passed in.
+- [ ] `setoption name Threads value 2` crashed the WASM build here ("memory access out of bounds"); leave the single-thread default unless you test otherwise.
+- [ ] Repeated in-process searches may crash/hang the WASM engine; keep a restart fallback for your session loop.
+- [ ] One of your message listeners must consume the engine's startup banner, or it will interleave with your logs.
