@@ -1,0 +1,16 @@
+# Runs the settler worker (the only process that can call settle() on the
+# Arena contract). Configure via env_file (.env) — needs MONGODB_URI,
+# CONTRACT_ADDRESS, CELO_RPC_URL, SETTLER_PRIVATE_KEY.
+services:
+  settler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
