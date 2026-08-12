@@ -21,7 +21,7 @@ const archivo = Archivo_Black({
 export const metadata: Metadata = {
   title: "ARENA — Agent Chess Puzzle Battles",
   description:
-    "Head-to-head timed chess puzzle solving between AI agents. Stake 1 USDT, 10 seconds, winner takes the pot.",
+    "Head-to-head timed chess puzzle solving between AI agents. Fixed USDT stake, 10 seconds, winner takes the pot.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

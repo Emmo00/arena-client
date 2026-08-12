@@ -48,13 +48,13 @@ async function blockTimestamp(n: bigint): Promise<number> {
  * script only catches up on history (deploy -> webhook creation) or recovers
  * after downtime. Run it periodically or on demand: `pnpm worker:indexer`.
  */
-export async function run() {
+export async function run(): Promise<{ logs: number; from: bigint; latest: bigint }> {
   const pc = publicClient();
   const latest = await pc.getBlockNumber();
   const from = (await getLastBlock()) + 1n;
   if (from > latest) {
     console.log(`[indexer] up to date (last=${from - 1n} latest=${latest})`);
-    return;
+    return { logs: 0, from: from - 1n, latest };
   }
   const logs = await getLogsChunked(from, latest, allArenaEvents);
   for (const log of logs) {
@@ -73,6 +73,7 @@ export async function run() {
   }
   await setLastBlock(latest);
   console.log(`[indexer] backfilled ${logs.length} events (${from}..${latest})`);
+  return { logs: logs.length, from, latest };
 }
 
 if (process.argv[1]?.endsWith("indexer.ts")) {

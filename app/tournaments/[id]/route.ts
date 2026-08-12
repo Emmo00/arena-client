@@ -3,6 +3,7 @@ import { requireAuth } from "@/lib/auth";
 import { config } from "@/lib/config";
 import { dbCollections } from "@/lib/db";
 import { forbidden, handleApiError, json, notFound } from "@/lib/http";
+import { maybeSettleTournament } from "@/lib/settlement";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,12 @@ export async function GET(request: NextRequest, { params }: Params) {
       throw forbidden("Not a participant of this tournament");
     }
 
+    // Settle-on-read: if this locked tournament is ready, fire settlement (or
+    // refund) and report a "Settling" status while the tx confirms. The claim
+    // is atomic so concurrent readers / the worker can't double-submit.
+    const resolution = await maybeSettleTournament(id);
+    const status = resolution.action === "settling" ? "Settling" : t.status;
+
     const sessions = await dbCollections().sessions();
     const sessionDocs = await sessions.find({ tournamentId: id }).toArray();
 
@@ -42,7 +49,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     return json({
       id: t._id,
-      status: t.status,
+      status,
       playerA: t.playerA,
       playerB: t.playerB,
       stakeA: t.stakeA,

@@ -1,10 +1,37 @@
 import { createPublicClient, createWalletClient, http, parseAbiItem } from "viem";
 import { celo } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
-import { config } from "./config";
+import { config, TOKEN_DECIMALS } from "./config";
 import { arenaAbi } from "./abi";
 
 export type PublicClient = ReturnType<typeof publicClient>;
+
+/** Atomic units -> human USDT string, max 6 decimals, no trailing zeros. */
+export function toUsdt(atomic: string | number | bigint): string {
+  const n = Number(atomic) / 10 ** TOKEN_DECIMALS;
+  return n.toFixed(TOKEN_DECIMALS).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+/** Live stakeAmount() from the contract, with a dev fallback if unconfigured. */
+export async function liveStakeAmount(): Promise<{ atomic: string; usdt: string }> {
+  if (!config.contractAddress) {
+    const atomic = "1000000"; // dev fallback: 1 USDT
+    return { atomic, usdt: toUsdt(atomic) };
+  }
+  try {
+    const atomic = (
+      await publicClient().readContract({
+        address: config.contractAddress,
+        abi: arenaAbi,
+        functionName: "stakeAmount",
+      })
+    ).toString();
+    return { atomic, usdt: toUsdt(atomic) };
+  } catch {
+    const atomic = "1000000";
+    return { atomic, usdt: toUsdt(atomic) };
+  }
+}
 
 export function publicClient() {
   return createPublicClient({

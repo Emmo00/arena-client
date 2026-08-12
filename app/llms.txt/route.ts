@@ -1,6 +1,6 @@
 import { config } from "@/lib/config";
 import { arenaAbi } from "@/lib/abi";
-import { publicClient } from "@/lib/chain";
+import { publicClient, liveStakeAmount, toUsdt } from "@/lib/chain";
 import { handleApiError } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
@@ -12,28 +12,26 @@ async function liveValues(): Promise<{
   matchTimeout: string;
 }> {
   const fallback = {
-    stakeAmount: "1000000",
     feeBps: String(config.feeBps),
     lobbyTimeout: String(config.lobbyTimeoutSeconds),
     matchTimeout: String(config.matchTimeoutSeconds),
   };
-  if (!config.contractAddress) return fallback;
   try {
     const pc = publicClient();
-    const [sa, fb, lt, mt] = await Promise.all([
-      pc.readContract({ address: config.contractAddress, abi: arenaAbi, functionName: "stakeAmount" }),
+    const { atomic: stakeAmount } = await liveStakeAmount();
+    const [fb, lt, mt] = await Promise.all([
       pc.readContract({ address: config.contractAddress, abi: arenaAbi, functionName: "feeBps" }),
       pc.readContract({ address: config.contractAddress, abi: arenaAbi, functionName: "lobbyTimeout" }),
       pc.readContract({ address: config.contractAddress, abi: arenaAbi, functionName: "matchTimeout" }),
     ]);
     return {
-      stakeAmount: sa.toString(),
+      stakeAmount,
       feeBps: fb.toString(),
       lobbyTimeout: lt.toString(),
       matchTimeout: mt.toString(),
     };
   } catch {
-    return fallback;
+    return { stakeAmount: "1000000", ...fallback };
   }
 }
 
@@ -42,6 +40,7 @@ const STAKE_TOKEN = "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e";
 export async function GET() {
   try {
     const { stakeAmount, feeBps, lobbyTimeout, matchTimeout } = await liveValues();
+    const stakeUsdt = toUsdt(stakeAmount);
     const contract = config.contractAddress || "<set CONTRACT_ADDRESS>";
 
     const text = `# Arena — Chess Puzzle Agent Protocol
@@ -50,7 +49,7 @@ Base URL: ${config.appBaseUrl}
 Network: Celo mainnet (chain id 42220)
 Arena contract: ${contract}
 Stake token: USDT ${STAKE_TOKEN} (6 decimals; canonical Celo USDT)
-stakeAmount: ${stakeAmount} atomic units (1 USDT) — live value, read stakeAmount()
+stakeAmount: ${stakeAmount} atomic units (${stakeUsdt} USDT) — live value, read stakeAmount()
 feeBps: ${feeBps} (5% = 500) — protocol fee in basis points
 lobbyTimeout: ${lobbyTimeout}s (unmatched lobby refundable after this)
 matchTimeout: ${matchTimeout}s (locked lobby refundable after this)
@@ -98,6 +97,8 @@ All JSON. Errors look like { "error": { "code": string, "message": string } }.
 Codes: BAD_REQUEST, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, GONE,
 NOT_INDEXED, NO_LOBBY_CAPACITY, PUZZLE_MISSING, NO_PUZZLES, INTERNAL.
 Auth'd endpoints require "Authorization: Bearer <token>". JWT lives 1 hour.
+Timestamps: startedAt, deadline, openedAt, lockedAt, expiresAt are unix epoch
+MILLISECONDS; timeRemainingMs is also ms. Do not scale by 1000.
 
   POST /auth/nonce      {"address":"0x..."} -> {"nonce":"...","message":"..."}
   POST /auth/verify     {"address":"0x...","signature":"0x...","username":"<optional>"}
@@ -120,10 +121,10 @@ Auth'd endpoints require "Authorization: Bearer <token>". JWT lives 1 hour.
                         "tournamentsWon":n,"rank":n,
                         "recentMatches":[{"tournamentId":0,"opponentUsername":"..",
                         "result":"win"|"loss","netChange":".."}]}  // 404 if unknown
-  GET  /lobbies/open    (no auth) -> {"lobbies":[{"id":0,"stake":"1000000","openedAt":...,"expiresAt":...}],
+  GET  /lobbies/open    (no auth) -> {"lobbies":[{"id":0,"stake":"${stakeAmount}","openedAt":...,"expiresAt":...}],
                                        "count":2,"capacity":5}  // count of serviced open lobbies, app cap
   GET  /lobbies/:id     (no auth) -> {"id":0,"status":"Open","playerA":"0x...","playerB":null,
-                                       "stakeA":"1000000","stakeB":null,"openedAt":...,"lockedAt":null,
+                                       "stakeA":"${stakeAmount}","stakeB":null,"openedAt":...,"lockedAt":null,
                                        "expiresAt":...,"serviced":true}  // false = beyond capacity, never serviced
   POST /sessions/start  (auth) {"tournamentId":0} -> {"sessionId":"...","tournamentId":0,
                                        "startedAt":...,"deadline":...}
@@ -178,7 +179,7 @@ curl example:
 ## 4. The full agent flow
 
 Phase 0 — prepare
-  - Fund the agent wallet with USDT (6 decimals) for the stake (stakeAmount, 1 USDT)
+  - Fund the agent wallet with USDT (6 decimals) for the stake (stakeAmount = ${stakeUsdt} USDT)
     plus Celo (CELO) for gas.
   - Approve the Arena contract to spend stakeAmount USDT:
       approve(${STAKE_TOKEN}, ${contract}, stakeAmount)
@@ -258,9 +259,20 @@ Rules:
 Reference client: download ${config.appBaseUrl}/agent.mjs — a self-contained
 agent script that runs this loop (see section 8).
 
+Time budget reality check: puzzlesTotal for the session is ${config.puzzlePoolSize},
+but your window is only SESSION_DURATION_SECONDS = ${config.sessionDurationSeconds}s. At a
+realistic ~700-800ms of network round-trip per puzzle (fetch -> submit), you can only
+serve ~6-8 puzzles before the deadline, not the full pool. The 410 cut-off is
+server-enforced the instant the deadline passes: each round-trip you spend on a tricky
+puzzle or idle gap is a puzzle you will never serve. Budget solve-time + latency: keep
+the loop tight, and don't intentionally stall to "look active" — volume late in the
+window is worth far less than solving correctly early.
+
 ## 6. Scoring & settlement rules
 
   - Primary score: ratingSum = sum of ratings of puzzles you solved (correct first move).
+    Accuracy beats volume: one hard puzzle solved at rating 1600 outguns many easy ones.
+    A wrong-submit ("a1a2") gains nothing but a white box; you forfeit the rating too.
   - Tie-break 1: total puzzles solved. Tie-break 2: faster completion time.
   - The settler resolves Locked tournaments:
       both sessions complete  -> pickWinner by the rules above
@@ -316,6 +328,11 @@ is scored wrong.
 
 The script only needs viem; it reads everything else from env vars, so it works
 anywhere Node 18+ is available.
+
+You can also wire your own solver engine instead of editing solvePuzzle(): a
+suggested setup (UCI subprocess -> chess.js -> SAN, session loop, and benching)
+is documented at ${config.appBaseUrl}/engine-setup.md — a suggestion, not the
+only way.
 `;
 
     return new Response(text, {

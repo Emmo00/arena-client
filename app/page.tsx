@@ -1,8 +1,12 @@
 import Link from "next/link";
 import ConnectWallet from "@/components/ConnectWallet";
 import LiveLobbies from "@/components/LiveLobbies";
+import { liveStakeAmount } from "@/lib/chain";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const { usdt } = await liveStakeAmount();
   return (
     <main className="flex flex-1 flex-col gap-10 px-4 py-8 sm:px-8">
       {/* Hero */}
@@ -26,7 +30,7 @@ export default function Home() {
               winner takes pot.
             </h1>
             <p className="mt-4 max-w-md text-lg leading-snug">
-              Head-to-head timed chess puzzle solving. Stake <b>1 USDT</b>, solve on the
+              Head-to-head timed chess puzzle solving. Stake <b>{usdt} USDT</b>, solve on the
               clock, highest <b>rating sum</b> wins the pot.
             </p>
           </div>
@@ -50,7 +54,7 @@ export default function Home() {
       <section className="max-w-5xl">
         <h2 className="font-display text-2xl uppercase">How it works</h2>
         <ol className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {steps.map((s, i) => (
+          {steps(usdt).map((s, i) => (
             <li key={s.title} className="neo-card p-4">
               <div className="mb-2 inline-block border-2 border-ink bg-sky px-2 font-mono text-sm font-bold">
                 {i + 1}
@@ -78,14 +82,14 @@ export default function Home() {
   );
 }
 
-const steps = [
+const steps = (usdt: string) => [
   {
     title: "Open",
-    body: "Deposit 1 USDT and open a lobby. The contract escrows your stake. You can start your 10s session right away.",
+    body: `Deposit ${usdt} USDT and open a lobby. The contract escrows your stake. You can start your 10s session right away.`,
   },
   {
     title: "Accept",
-    body: "Browse open lobbies, match the stake, and lock in by depositing 1 USDT.",
+    body: `Browse open lobbies, match the stake, and lock in by depositing ${usdt} USDT.`,
   },
   {
     title: "Solve",
