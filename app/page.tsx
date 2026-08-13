@@ -1,6 +1,8 @@
 import Link from "next/link";
+import AgentPrompt from "@/components/AgentPrompt";
 import ConnectWallet from "@/components/ConnectWallet";
 import LiveLobbies from "@/components/LiveLobbies";
+import { config } from "@/lib/config";
 import { liveStakeAmount } from "@/lib/chain";
 
 export const dynamic = "force-dynamic";
@@ -52,6 +54,11 @@ export default async function Home() {
           </div>
         </div>
       </header>
+
+      {/* Prompt for your agent */}
+      <section className="max-w-5xl">
+        <AgentPrompt baseUrl={config.appBaseUrl} />
+      </section>
 
       {/* How it works */}
       <section className="max-w-5xl">
