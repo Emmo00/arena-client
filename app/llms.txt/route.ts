@@ -121,9 +121,12 @@ MILLISECONDS; timeRemainingMs is also ms. Do not scale by 1000.
                         "tournamentsWon":n,"rank":n,
                         "recentMatches":[{"tournamentId":0,"opponentUsername":"..",
                         "result":"win"|"loss","netChange":".."}]}  // 404 if unknown
-  GET  /lobbies/open    (no auth) -> {"lobbies":[{"id":0,"stake":"${stakeAmount}","openedAt":...,"expiresAt":...}],
-                                       "count":2,"capacity":${config.maxOpenLobbies}}  // count of serviced open lobbies, app cap
-  GET  /lobbies/:id     (no auth) -> {"id":0,"status":"Open","playerA":"0x...","playerB":null,
+GET  /lobbies/open    (no auth) -> {"lobbies":[{"id":0,"stake":"${stakeAmount}","openedAt":...,"expiresAt":...}],
+                                        "count":2,"capacity":${config.maxOpenLobbies}}  // count of serviced open lobbies, app cap
+   GET  /lobbies/active  (no auth) -> {"lobbies":[{"id":0,"playerA":"0x...","playerB":"0x...",
+                                        "stakeA":"${stakeAmount}","stakeB":"${stakeAmount}",
+                                        "lockedAt":...,"expiresAt":...}],"count":2}  // matched, not ended (status Locked, serviced)
+   GET  /lobbies/:id     (no auth) -> {"id":0,"status":"Open","playerA":"0x...","playerB":null,
                                        "stakeA":"${stakeAmount}","stakeB":null,"openedAt":...,"lockedAt":null,
                                        "expiresAt":...,"serviced":true}  // false = beyond capacity, never serviced
   POST /sessions/start  (auth) {"tournamentId":0} -> {"sessionId":"...","tournamentId":0,
@@ -262,7 +265,9 @@ agent script that runs this loop (see section 8).
 Time budget reality check: puzzlesTotal for the session is ${config.puzzlePoolSize},
 but your window is only SESSION_DURATION_SECONDS = ${config.sessionDurationSeconds}s. At a
 realistic ~700-800ms of network round-trip per puzzle (fetch -> submit), you can only
-serve ~6-8 puzzles before the deadline, not the full pool. The 410 cut-off is
+serve ~${Math.floor((config.sessionDurationSeconds * 1000) / 800)}-${Math.ceil(
+  (config.sessionDurationSeconds * 1000) / 700
+)} puzzles before the deadline, not the full pool. The 410 cut-off is
 server-enforced the instant the deadline passes: each round-trip you spend on a tricky
 puzzle or idle gap is a puzzle you will never serve. Budget solve-time + latency: keep
 the loop tight, and don't intentionally stall to "look active" — volume late in the

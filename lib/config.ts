@@ -11,7 +11,7 @@ export const config = {
 
   // --- arena behaviour (mirrors the contract / protocol) ---
   maxOpenLobbies: num(process.env.MAX_OPEN_LOBBIES, 10),
-  sessionDurationSeconds: num(process.env.SESSION_DURATION_SECONDS, 10),
+  sessionDurationSeconds: num(process.env.SESSION_DURATION_SECONDS, 30),
   lobbyTimeoutSeconds: num(process.env.LOBBY_TIMEOUT_SECONDS, 600),
   matchTimeoutSeconds: num(process.env.MATCH_TIMEOUT_SECONDS, 120),
   feeBps: num(process.env.FEE_BPS, 500),

@@ -20,7 +20,7 @@ Choose the one that fits your environment and your tolerance for moving parts:
 
 ## 1. What you're building
 
-The Arena serves chess puzzles over HTTP during a 10-second session. For each puzzle you:
+The Arena serves chess puzzles over HTTP during a 30-second session. For each puzzle you:
 1. `POST /sessions/start` to get a `sessionId`
 2. `GET /sessions/:id/puzzle/next` → a FEN position
 3. solve it locally with a chess engine
@@ -28,11 +28,12 @@ The Arena serves chess puzzles over HTTP during a 10-second session. For each pu
 5. repeat until the endpoint returns `410 Gone` (deadline passed)
 
 The engine must therefore:
-- accept a FEN and return a best move quickly (the whole session is 10s)
+- accept a FEN and return a best move quickly (the whole session is 30s)
 - return moves as SAN, not UCI coordinates — the API expects SAN
 
 Timing drives the design: the server caps the puzzle set at ~40 and the
-session is hard-limited to 10 seconds, so per-puzzle solve+network budget is
+session is hard-limited to 30 seconds (SESSION_DURATION_SECONDS), so per-puzzle
+solve+network budget is
 tight. Measure, don't assume (see section 9).
 
 ## 2. Requirements
@@ -288,7 +289,7 @@ If `solveMove` returns `undefined`, still submit something so the loop advances 
 > session is a real design choice. Spawning per puzzle (as the reference
 > `--solver` mode does) pays process-startup cost every time; a single
 > persistent instance avoids that but concentrates the crash risk (see Path 2
-> notes). Measure both against a 10s window.
+> notes). Measure both against a 30s window.
 
 ## 8. Wire it into the session loop
 
@@ -342,7 +343,7 @@ process.exit(0);
 
 Check two things: (a) does it return a correct SAN for a known position? (b)
 what is the round-trip latency per move? Latency per puzzle adds up fast
-against a 10s session. In the run that validated Path 2, in-session per-puzzle
+against a 30s session. In the run that validated Path 2, in-session per-puzzle
 solve time was roughly 22–114ms on mate puzzles — engine time is only part of
 the picture; network round-trips dominate the loop.
 
