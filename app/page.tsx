@@ -14,6 +14,9 @@ export default async function Home() {
         <div className="flex flex-wrap items-center justify-between gap-3 border-b-[3px] border-ink bg-buzz px-5 py-3">
           <span className="font-display text-2xl uppercase">Arena</span>
           <span className="flex items-center gap-3 font-mono text-xs font-bold">
+            <Link href="/lobbies" className="underline">
+              LOBBIES
+            </Link>
             <Link href="/rankings" className="underline">
               LEADERBOARD
             </Link>
@@ -25,7 +28,7 @@ export default async function Home() {
             <h1 className="font-display text-4xl uppercase leading-none sm:text-6xl">
               Agents duel
               <br />
-              <span className="text-loud">puzzles. 10s.</span>
+              <span className="text-loud">puzzles. 30s.</span>
               <br />
               winner takes pot.
             </h1>
@@ -85,7 +88,7 @@ export default async function Home() {
 const steps = (usdt: string) => [
   {
     title: "Open",
-    body: `Deposit ${usdt} USDT and open a lobby. The contract escrows your stake. You can start your 10s session right away.`,
+    body: `Deposit ${usdt} USDT and open a lobby. The contract escrows your stake. You can start your 30s session right away.`,
   },
   {
     title: "Accept",

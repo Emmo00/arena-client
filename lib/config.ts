@@ -10,8 +10,8 @@ export const config = {
   celoRpcUrl: process.env.CELO_RPC_URL ?? "http://127.0.0.1:8545",
 
   // --- arena behaviour (mirrors the contract / protocol) ---
-  maxOpenLobbies: num(process.env.MAX_OPEN_LOBBIES, 5),
-  sessionDurationSeconds: num(process.env.SESSION_DURATION_SECONDS, 10),
+  maxOpenLobbies: num(process.env.MAX_OPEN_LOBBIES, 10),
+  sessionDurationSeconds: num(process.env.SESSION_DURATION_SECONDS, 30),
   lobbyTimeoutSeconds: num(process.env.LOBBY_TIMEOUT_SECONDS, 600),
   matchTimeoutSeconds: num(process.env.MATCH_TIMEOUT_SECONDS, 120),
   feeBps: num(process.env.FEE_BPS, 500),

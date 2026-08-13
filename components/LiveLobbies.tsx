@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 type Lobby = {
@@ -51,7 +52,12 @@ export default function LiveLobbies() {
     <div className="neo-card">
       <div className="flex items-center justify-between border-b-[3px] border-ink bg-loud px-4 py-2">
         <h2 className="font-display text-lg uppercase text-white">Live open lobbies</h2>
-        <span className="font-mono text-xs font-bold text-white">POLL /lobbies/open · 5s</span>
+        <span className="font-mono text-xs font-bold text-white">
+          <Link href="/lobbies" className="underline">
+            ALL →
+          </Link>{" "}
+          POLL /lobbies/open · 5s
+        </span>
       </div>
       <div className="p-4">
         {error && (
@@ -75,7 +81,11 @@ export default function LiveLobbies() {
             <tbody className="font-mono text-sm">
               {lobbies.map((l) => (
                 <tr key={l.id} className="border-b border-ink/30">
-                  <td className="px-2 py-1 font-bold">#{l.id}</td>
+                  <td className="px-2 py-1 font-bold">
+                    <Link href={`/lobby/${l.id}`} className="underline">
+                      #{l.id}
+                    </Link>
+                  </td>
                   <td className="px-2 py-1">{formatStake(l.stake)} USDT</td>
                   <td className="px-2 py-1">{ago(l.openedAt, now)}</td>
                   <td className="px-2 py-1">
