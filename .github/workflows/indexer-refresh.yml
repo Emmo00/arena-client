@@ -18,4 +18,4 @@ jobs:
         run: |
           curl -sf -X POST \
             -H "Authorization: Bearer ${{ secrets.CACHE_REFRESH_TOKEN }}" \
-            "${{ vars.APP_BASE_URL }}/indexer/run"
+            "${{ vars.APP_BASE_URL }}/indexer/run" -vvvv
