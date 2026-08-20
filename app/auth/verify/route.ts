@@ -1,11 +1,12 @@
 import { NextRequest } from "next/server";
 import { getAddress } from "viem";
 import { verifySignatureAndIssueToken } from "@/lib/auth";
-import { badRequest, handleApiError, json } from "@/lib/http";
+import { badRequest, handleApiError, json, logOk } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now();
   try {
     const body = await request.json();
     if (typeof body?.address !== "string" || !body.address.startsWith("0x")) {
@@ -29,6 +30,7 @@ export async function POST(request: NextRequest) {
       body.signature as `0x${string}`,
       username
     );
+    logOk("auth", "POST /auth/verify ok", startedAt, { address, username: finalUsername });
     return json({ token, expiresAt, username: finalUsername });
   } catch (e) {
     return handleApiError(e);

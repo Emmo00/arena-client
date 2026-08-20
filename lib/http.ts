@@ -1,6 +1,17 @@
 import { NextResponse } from "next/server";
 import { logger } from "./logger";
 
+/** Log a successful API request/operation with its duration in ms. Error paths
+ * are logged by `handleApiError`. */
+export function logOk(
+  scope: string,
+  msg: string,
+  startedAt: number,
+  fields?: Record<string, unknown>
+): void {
+  logger.info(scope, `${msg} (${Date.now() - startedAt}ms)`, fields);
+}
+
 export class ApiError extends Error {
   status: number;
   code: string;

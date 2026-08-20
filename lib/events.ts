@@ -77,7 +77,17 @@ export async function processArenaEvent(ev: ArenaEventInput) {
     }
     case "LobbyAccepted": {
       const t = await tournaments.findOne({ _id: id });
-      if (!t) return;
+      if (!t) {
+        console.log(`[events] LobbyAccepted id=${id} ignored: no tournament doc`);
+        return;
+      }
+      if (t.status !== "Open") {
+        // Replay of a LobbyAccepted for a tournament that already advanced past
+        // Open (Locked/Settled/Refunded). Skipping keeps idempotent replays and
+        // out-of-order deliveries from regressing terminal state.
+        console.log(`[events] LobbyAccepted id=${id} ignored: status=${t.status}`);
+        return;
+      }
       await tournaments.updateOne(
         { _id: id },
         {
@@ -94,6 +104,20 @@ export async function processArenaEvent(ev: ArenaEventInput) {
       break;
     }
     case "Settled": {
+      const t = await tournaments.findOne({ _id: id });
+      if (!t) {
+        console.log(`[events] Settled id=${id} ignored: no tournament doc`);
+        return;
+      }
+      if (t.status === "Refunded") {
+        console.log(`[events] Settled id=${id} ignored: already Refunded`);
+        return;
+      }
+      if (t.status === "Settled") {
+        if (t.settleTx === ev.transactionHash) return; // exact replay, already applied
+        console.log(`[events] Settled id=${id} ignored: already Settled with a different tx`);
+        return;
+      }
       await tournaments.updateOne(
         { _id: id },
         {
@@ -115,6 +139,15 @@ export async function processArenaEvent(ev: ArenaEventInput) {
       break;
     }
     case "LobbyRefunded": {
+      const t = await tournaments.findOne({ _id: id });
+      if (!t) {
+        console.log(`[events] LobbyRefunded id=${id} ignored: no tournament doc`);
+        return;
+      }
+      if (t.status === "Refunded" || t.status === "Settled") {
+        console.log(`[events] LobbyRefunded id=${id} ignored: status=${t.status}`);
+        return;
+      }
       await tournaments.updateOne(
         { _id: id },
         { $set: { status: "Refunded", refundTx: ev.transactionHash, updatedAt: now } }
@@ -123,6 +156,15 @@ export async function processArenaEvent(ev: ArenaEventInput) {
       break;
     }
     case "LockedLobbyRefunded": {
+      const t = await tournaments.findOne({ _id: id });
+      if (!t) {
+        console.log(`[events] LockedLobbyRefunded id=${id} ignored: no tournament doc`);
+        return;
+      }
+      if (t.status === "Refunded" || t.status === "Settled") {
+        console.log(`[events] LockedLobbyRefunded id=${id} ignored: status=${t.status}`);
+        return;
+      }
       await tournaments.updateOne(
         { _id: id },
         { $set: { status: "Refunded", refundTx: ev.transactionHash, updatedAt: now } }

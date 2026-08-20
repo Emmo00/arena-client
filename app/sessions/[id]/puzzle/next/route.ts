@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { ObjectId } from "mongodb";
 import { requireAuth } from "@/lib/auth";
 import { dbCollections } from "@/lib/db";
-import { ApiError, forbidden, gone, handleApiError, json, notFound } from "@/lib/http";
+import { ApiError, forbidden, gone, handleApiError, json, logOk, notFound } from "@/lib/http";
 import { getPuzzleById, playerMovesOf } from "@/lib/puzzles";
 import { sessionExpired } from "@/lib/scoring";
 
@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic";
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(request: NextRequest, { params }: Params) {
+  const startedAt = Date.now();
   try {
     const address = await requireAuth(request);
     const { id } = await params;
@@ -32,6 +33,10 @@ export async function GET(request: NextRequest, { params }: Params) {
     }
 
     if (s.servedCount >= s.shuffled.length) {
+      logOk("api", "GET /sessions/[id]/puzzle/next done", startedAt, {
+        sessionId: s._id.toString(),
+        done: true,
+      });
       return json({ done: true, puzzleId: null });
     }
 
@@ -42,6 +47,12 @@ export async function GET(request: NextRequest, { params }: Params) {
     }
 
     await sessions.updateOne({ _id: s._id }, { $inc: { servedCount: 1 } });
+
+    logOk("api", "GET /sessions/[id]/puzzle/next ok", startedAt, {
+      sessionId: s._id.toString(),
+      puzzleId,
+      servedCount: s.servedCount + 1,
+    });
 
     // NOTE: `moves` (the solution) is never included here.
     return json({

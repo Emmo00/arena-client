@@ -3,12 +3,13 @@ import { ObjectId } from "mongodb";
 import { requireAuth } from "@/lib/auth";
 import { config } from "@/lib/config";
 import { dbCollections } from "@/lib/db";
-import { ApiError, badRequest, conflict, forbidden, handleApiError, json } from "@/lib/http";
+import { ApiError, badRequest, conflict, forbidden, handleApiError, json, logOk } from "@/lib/http";
 import { sampleSubset } from "@/lib/puzzles";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now();
   try {
     const address = await requireAuth(request);
     const body = await request.json();
@@ -78,6 +79,10 @@ export async function POST(request: NextRequest) {
       completedAt: null,
     });
 
+    logOk("api", "POST /sessions/start ok", startedAt, {
+      tournamentId,
+      sessionId: inserted.insertedId.toString(),
+    });
     return json({
       sessionId: inserted.insertedId.toString(),
       tournamentId,

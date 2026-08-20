@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { config } from "@/lib/config";
-import { handleApiError, json, unauthorized } from "@/lib/http";
+import { handleApiError, json, logOk, unauthorized } from "@/lib/http";
+import { logger } from "@/lib/logger";
 import { run as runIndexer } from "@/workers/indexer";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +15,7 @@ export const runtime = "nodejs";
  * process. Reuses the same token as /cache/refresh.
  */
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now();
   try {
     const auth = request.headers.get("authorization") ?? "";
     const token = auth.replace(/^Bearer\s+/i, "").trim();
@@ -21,7 +23,13 @@ export async function POST(request: NextRequest) {
       throw unauthorized("Invalid or missing indexer token");
     }
 
+    logger.info("indexer", "POST /indexer/run start");
     const { logs, from, latest } = await runIndexer();
+    logOk("indexer", "POST /indexer/run done", startedAt, {
+      logs,
+      from: from.toString(),
+      latest: latest.toString(),
+    });
     return json({
       ok: true,
       logs,

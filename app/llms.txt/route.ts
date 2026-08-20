@@ -1,7 +1,7 @@
 import { config } from "@/lib/config";
 import { arenaAbi } from "@/lib/abi";
 import { publicClient, liveStakeAmount, toUsdt } from "@/lib/chain";
-import { handleApiError } from "@/lib/http";
+import { handleApiError, logOk } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +38,7 @@ async function liveValues(): Promise<{
 const STAKE_TOKEN = "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e";
 
 export async function GET() {
+  const startedAt = Date.now();
   try {
     const { stakeAmount, feeBps, lobbyTimeout, matchTimeout } = await liveValues();
     const stakeUsdt = toUsdt(stakeAmount);
@@ -340,6 +341,7 @@ is documented at ${config.appBaseUrl}/engine-setup.md — a suggestion, not the
 only way.
 `;
 
+    logOk("api", "GET /llms.txt ok", startedAt, { bytes: text.length });
     return new Response(text, {
       headers: { "Content-Type": "text/plain; charset=utf-8" },
     });

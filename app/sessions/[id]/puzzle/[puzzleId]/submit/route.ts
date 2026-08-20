@@ -10,6 +10,7 @@ import {
   gone,
   handleApiError,
   json,
+  logOk,
   notFound,
 } from "@/lib/http";
 import { getPuzzleById, isCorrectMove } from "@/lib/puzzles";
@@ -20,6 +21,7 @@ export const dynamic = "force-dynamic";
 type Params = { params: Promise<{ id: string; puzzleId: string }> };
 
 export async function POST(request: NextRequest, { params }: Params) {
+  const startedAt = Date.now();
   try {
     const address = await requireAuth(request);
     const { id, puzzleId } = await params;
@@ -87,6 +89,11 @@ export async function POST(request: NextRequest, { params }: Params) {
       submittedAt: now,
     });
 
+    logOk("api", "POST /sessions/[id]/puzzle/[puzzleId]/submit ok", startedAt, {
+      sessionId: s._id.toString(),
+      puzzleId,
+      correct,
+    });
     return json({ correct, ratingAwarded });
   } catch (e) {
     return handleApiError(e);

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { config } from "@/lib/config";
-import { handleApiError, json, unauthorized } from "@/lib/http";
+import { handleApiError, json, logOk, unauthorized } from "@/lib/http";
+import { logger } from "@/lib/logger";
 import { maybeRefreshCache } from "@/lib/puzzles";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +15,7 @@ export const runtime = "nodejs";
  * cache worker. Returns the refreshed state and the current pool size.
  */
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now();
   try {
     const auth = request.headers.get("authorization") ?? "";
     const token = auth.replace(/^Bearer\s+/i, "").trim();
@@ -21,7 +23,14 @@ export async function POST(request: NextRequest) {
       throw unauthorized("Invalid or missing cache refresh token");
     }
 
+    logger.info("cache-refresh", "POST /cache/refresh start");
     const res = await maybeRefreshCache();
+    logOk("cache-refresh", "POST /cache/refresh done", startedAt, {
+      refreshed: res.refreshed,
+      mode: res.mode,
+      inserted: res.inserted,
+      pool: res.pool,
+    });
     return json({
       ok: true,
       refreshed: res.refreshed,
