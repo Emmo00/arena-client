@@ -55,6 +55,13 @@ export const config = {
     ? BigInt(process.env.INDEXER_START_BLOCK)
     : null,
   indexerPollMs: num(process.env.INDEXER_POLL_MS, 3000),
+  // Blocks to scan per getLogs window. Kept small so a failing window is cheap
+  // to retry and progress is persisted frequently.
+  indexerBlockRange: num(process.env.INDEXER_BLOCK_RANGE, 5000),
+  // Exponential backoff knobs for transient RPC errors.
+  indexerBackoffBaseMs: num(process.env.INDEXER_BACKOFF_BASE_MS, 1000),
+  indexerBackoffMaxMs: num(process.env.INDEXER_BACKOFF_MAX_MS, 60000),
+  indexerBackoffMaxAttempts: num(process.env.INDEXER_BACKOFF_MAX_ATTEMPTS, 5),
   settlerPollMs: num(process.env.SETTLER_POLL_MS, 3000),
   cachePollMs: num(process.env.CACHE_POLL_MS, 30000),
 } as const;
