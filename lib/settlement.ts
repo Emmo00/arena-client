@@ -157,3 +157,36 @@ export async function maybeSettleTournament(
 
   return { action: "none" };
 }
+
+export interface SweepResult {
+  settling: number;
+  refunding: number;
+  none: number;
+  errors: { id: number; error: string }[];
+}
+
+/**
+ * Backstop sweep for stuck Locked tournaments: every tournament with two
+ * participants that still has no settle tx is run through `maybeSettleTournament`,
+ * which settles (both sessions complete), forfeits a no-show after the match
+ * deadline, or refunds if neither side ever started. Safe to run concurrently
+ * with the settler worker — the atomic claim prevents double-submits. One
+ * failing tournament never aborts the rest; failures are returned for reporting.
+ */
+export async function sweepStaleTournaments(): Promise<SweepResult> {
+  const tournaments = await dbCollections().tournaments();
+  const locked = await tournaments.find({ status: "Locked", settleTx: null }).toArray();
+  const result: SweepResult = { settling: 0, refunding: 0, none: 0, errors: [] };
+  for (const t of locked) {
+    try {
+      const r = await maybeSettleTournament(t._id);
+      if (r.action === "settling") result.settling++;
+      else if (r.action === "refunding") result.refunding++;
+      else result.none++;
+    } catch (e) {
+      console.error(`[settlement] sweep tournament ${t._id} failed:`, e);
+      result.errors.push({ id: t._id, error: String(e) });
+    }
+  }
+  return result;
+}

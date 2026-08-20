@@ -1,0 +1,20 @@
+name: Settle sweep
+
+on:
+  schedule:
+    # Backstop for stuck Locked tournaments, twice a day at a low-traffic offset (:04)
+    - cron: "4 */12 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger /settle/sweep
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.CACHE_REFRESH_TOKEN }}" \
+            "${{ vars.APP_BASE_URL }}/settle/sweep"
