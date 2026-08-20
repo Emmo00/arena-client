@@ -1,8 +1,45 @@
-import { createPublicClient, createWalletClient, http, parseAbiItem } from "viem";
+import {
+  createPublicClient,
+  createWalletClient,
+  http,
+  parseAbiItem,
+  ContractFunctionExecutionError,
+  NonceTooHighError,
+  NonceTooLowError,
+  nonceManager,
+  type Hash,
+} from "viem";
 import { celo } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { config, TOKEN_DECIMALS } from "./config";
 import { arenaAbi } from "./abi";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Retry a tx send when the account nonce collided with an already-broadcast
+ * tx (concurrent sends from another process share the settler key). viem
+ * resets the nonce manager on error, so the retry refetches the pending nonce.
+ * Re-throws the original error once retries are exhausted. */
+async function submitWithNonceRetry(send: () => Promise<Hash>, retries = 4): Promise<Hash> {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await send();
+    } catch (e) {
+      const isNonceConflict =
+        e instanceof ContractFunctionExecutionError &&
+        e.walk(
+          (err) => err instanceof NonceTooLowError || err instanceof NonceTooHighError
+        ) !== null;
+      if (!isNonceConflict || attempt === retries) throw e;
+      const backoff = 500 * 2 ** (attempt - 1);
+      console.warn(
+        `[chain] nonce conflict (attempt ${attempt}/${retries}), retrying in ${backoff}ms`
+      );
+      await sleep(backoff);
+    }
+  }
+  throw new Error("unreachable");
+}
 
 export type PublicClient = ReturnType<typeof publicClient>;
 
@@ -42,8 +79,14 @@ export function publicClient() {
 
 export type SettlerWallet = ReturnType<typeof makeSettlerWallet>;
 
+// Cached singleton: concurrent sends share one account + nonce manager so
+// within a process viem hands out strictly increasing, conflict-free nonces.
+let wallet: SettlerWallet | null = null;
+
 function makeSettlerWallet() {
-  const account = privateKeyToAccount(config.settlerPrivateKey as `0x${string}`);
+  const account = privateKeyToAccount(config.settlerPrivateKey as `0x${string}`, {
+    nonceManager,
+  });
   return {
     account,
     client: createWalletClient({
@@ -55,7 +98,8 @@ function makeSettlerWallet() {
 }
 
 export function settlerWallet(): SettlerWallet {
-  return makeSettlerWallet();
+  if (!wallet) wallet = makeSettlerWallet();
+  return wallet;
 }
 
 export const arenaEvents = {
@@ -116,24 +160,28 @@ export async function getTournament(id: bigint) {
 
 export async function submitSettle(id: bigint, winner: `0x${string}`) {
   const { account, client } = settlerWallet();
-  const hash = await client.writeContract({
-    address: config.contractAddress,
-    abi: arenaAbi,
-    functionName: "settle",
-    args: [id, winner],
-    account,
-  });
+  const hash = await submitWithNonceRetry(() =>
+    client.writeContract({
+      address: config.contractAddress,
+      abi: arenaAbi,
+      functionName: "settle",
+      args: [id, winner],
+      account,
+    })
+  );
   return publicClient().waitForTransactionReceipt({ hash });
 }
 
 export async function submitRefundLocked(id: bigint) {
   const { account, client } = settlerWallet();
-  const hash = await client.writeContract({
-    address: config.contractAddress,
-    abi: arenaAbi,
-    functionName: "refundLockedLobby",
-    args: [id],
-    account,
-  });
+  const hash = await submitWithNonceRetry(() =>
+    client.writeContract({
+      address: config.contractAddress,
+      abi: arenaAbi,
+      functionName: "refundLockedLobby",
+      args: [id],
+      account,
+    })
+  );
   return publicClient().waitForTransactionReceipt({ hash });
 }
