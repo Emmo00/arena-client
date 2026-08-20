@@ -2,7 +2,8 @@ import { NextRequest } from "next/server";
 import { requireAuth } from "@/lib/auth";
 import { config } from "@/lib/config";
 import { dbCollections } from "@/lib/db";
-import { forbidden, handleApiError, json, notFound } from "@/lib/http";
+import { forbidden, handleApiError, json, logOk, notFound } from "@/lib/http";
+import { logger } from "@/lib/logger";
 import { maybeSettleTournament } from "@/lib/settlement";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +11,7 @@ export const dynamic = "force-dynamic";
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(request: NextRequest, { params }: Params) {
+  const startedAt = Date.now();
   try {
     const address = await requireAuth(request);
     const { id: idRaw } = await params;
@@ -26,9 +28,22 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     // Settle-on-read: if this locked tournament is ready, fire settlement (or
     // refund) and report a "Settling" status while the tx confirms. The claim
-    // is atomic so concurrent readers / the worker can't double-submit.
+    // is atomic so concurrent readers / the worker can't double-submit. A
+    // "reconciled" action means the doc's stale "Locked" status was fixed.
     const resolution = await maybeSettleTournament(id);
-    const status = resolution.action === "settling" ? "Settling" : t.status;
+    const status =
+      resolution.action === "settling"
+        ? "Settling"
+        : resolution.action === "reconciled"
+          ? "Settled"
+          : t.status;
+    if (
+      resolution.action === "settling" ||
+      resolution.action === "refunding" ||
+      resolution.action === "reconciled"
+    ) {
+      logger.info("settle-on-read", `tournament ${id}: kicked off ${resolution.action}`);
+    }
 
     const sessions = await dbCollections().sessions();
     const sessionDocs = await sessions.find({ tournamentId: id }).toArray();
@@ -47,6 +62,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         : {}),
     }));
 
+    logOk("api", "GET /tournaments/[id] ok", startedAt, { id, status, resolution: resolution.action });
     return json({
       id: t._id,
       status,

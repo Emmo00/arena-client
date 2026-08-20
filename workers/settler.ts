@@ -9,9 +9,9 @@ async function runOnce() {
   if (!config.contractAddress) return;
 
   const res = await sweepStaleTournaments();
-  if (res.settling > 0 || res.refunding > 0 || res.errors.length > 0) {
+  if (res.settled > 0 || res.refunded > 0 || res.reconciled > 0 || res.failed > 0) {
     console.log(
-      `[settler] sweep settling=${res.settling} refunding=${res.refunding} none=${res.none} errors=${res.errors.length}`
+      `[settler] sweep settled=${res.settled} refunded=${res.refunded} reconciled=${res.reconciled} none=${res.none} failed=${res.failed}`
     );
   }
 }

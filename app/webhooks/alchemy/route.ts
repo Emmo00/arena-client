@@ -52,12 +52,14 @@ function isValidSignature(rawBody: string, signature: string): boolean {
 }
 
 export async function POST(request: Request) {
+  const startedAt = Date.now();
   try {
     const rawBody = await request.text();
     const signature = request.headers.get("x-alchemy-signature") ?? "";
     if (!isValidSignature(rawBody, signature)) {
       logger.warn("webhook", "rejected: invalid signature", undefined, {
         hasSignature: signature.length > 0,
+        ms: Date.now() - startedAt,
       });
       return new Response(
         JSON.stringify({ error: { code: "UNAUTHORIZED", message: "Invalid signature" } }),
@@ -68,7 +70,7 @@ export async function POST(request: Request) {
     const payload = JSON.parse(rawBody) as GraphqlPayload;
     const block = payload.event?.data?.block;
     if (!block?.logs?.length) {
-      logger.info("webhook", "no logs in payload");
+      logger.info("webhook", "no logs in payload", { ms: Date.now() - startedAt });
       return new Response(JSON.stringify({ ok: true, processed: 0 }), {
         headers: { "content-type": "application/json" },
       });
@@ -104,6 +106,7 @@ export async function POST(request: Request) {
     logger.info("webhook", "processed payload", {
       block: block.number ?? "?",
       processed,
+      ms: Date.now() - startedAt,
     });
 
     return new Response(JSON.stringify({ ok: true, processed }), {

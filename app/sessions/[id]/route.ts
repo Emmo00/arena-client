@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { ObjectId } from "mongodb";
 import { requireAuth } from "@/lib/auth";
 import { dbCollections } from "@/lib/db";
-import { forbidden, handleApiError, json, notFound } from "@/lib/http";
+import { forbidden, handleApiError, json, logOk, notFound } from "@/lib/http";
 import { sessionExpired } from "@/lib/scoring";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(request: NextRequest, { params }: Params) {
+  const startedAt = Date.now();
   try {
     const address = await requireAuth(request);
     const { id } = await params;
@@ -26,6 +27,10 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (s.player !== address) throw forbidden("Not your session");
 
     const now = Date.now();
+    logOk("api", "GET /sessions/[id] ok", startedAt, {
+      sessionId: s._id.toString(),
+      tournamentId: s.tournamentId,
+    });
     return json({
       sessionId: s._id.toString(),
       tournamentId: s.tournamentId,

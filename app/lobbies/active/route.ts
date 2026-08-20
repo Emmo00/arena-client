@@ -1,13 +1,15 @@
 import { config } from "@/lib/config";
 import { listActiveLobbies } from "@/lib/lobbies";
-import { handleApiError, json } from "@/lib/http";
+import { handleApiError, json, logOk } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 
 /** Live "matched, not ended" lobbies: status Locked, serviced. Public read. */
 export async function GET() {
+  const startedAt = Date.now();
   try {
     const lobbies = await listActiveLobbies(50);
+    logOk("api", "GET /lobbies/active ok", startedAt, { count: lobbies.length });
     return json({
       lobbies: lobbies.map((t) => ({
         id: t.id,
