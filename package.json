@@ -15,6 +15,7 @@
     "test:leaderboard": "tsx scripts/leaderboard-test.ts"
   },
   "dependencies": {
+    "@celo/attribution-tags": "^0.3.0",
     "chess.js": "^1.4.0",
     "dotenv": "^17.4.2",
     "jose": "^6.2.8",

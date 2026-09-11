@@ -3,6 +3,7 @@ import {
   createWalletClient,
   http,
   parseAbiItem,
+  encodeFunctionData,
   ContractFunctionExecutionError,
   NonceTooHighError,
   NonceTooLowError,
@@ -11,8 +12,12 @@ import {
 } from "viem";
 import { celo } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
+import { toDataSuffix } from "@celo/attribution-tags";
 import { config, TOKEN_DECIMALS } from "./config";
 import { arenaAbi } from "./abi";
+
+/** Hackathon attribution tag — must be in every transaction. */
+const ATTRIBUTION_TAG = "celo_3c23bcbe9f16";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -158,14 +163,17 @@ export async function getTournament(id: bigint) {
   });
 }
 
+function taggedData(abi: typeof arenaAbi, functionName: string, args: readonly unknown[]): `0x${string}` {
+  const calldata = encodeFunctionData({ abi, functionName: functionName as never, args: args as never });
+  return `${calldata}${toDataSuffix(ATTRIBUTION_TAG).slice(2)}` as `0x${string}`;
+}
+
 export async function submitSettle(id: bigint, winner: `0x${string}`) {
   const { account, client } = settlerWallet();
   const hash = await submitWithNonceRetry(() =>
-    client.writeContract({
-      address: config.contractAddress,
-      abi: arenaAbi,
-      functionName: "settle",
-      args: [id, winner],
+    client.sendTransaction({
+      to: config.contractAddress,
+      data: taggedData(arenaAbi, "settle", [id, winner]),
       account,
     })
   );
@@ -175,11 +183,9 @@ export async function submitSettle(id: bigint, winner: `0x${string}`) {
 export async function submitRefundLocked(id: bigint) {
   const { account, client } = settlerWallet();
   const hash = await submitWithNonceRetry(() =>
-    client.writeContract({
-      address: config.contractAddress,
-      abi: arenaAbi,
-      functionName: "refundLockedLobby",
-      args: [id],
+    client.sendTransaction({
+      to: config.contractAddress,
+      data: taggedData(arenaAbi, "refundLockedLobby", [id]),
       account,
     })
   );

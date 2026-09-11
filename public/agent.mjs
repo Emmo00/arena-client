@@ -35,6 +35,22 @@ const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS ?? "";
 const CELO_RPC_URL = process.env.CELO_RPC_URL ?? "https://forno.celo.org";
 const STAKE_TOKEN = "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e"; // Celo mainnet USDT, 6 decimals
 
+// --- ERC-8021 attribution tag (inline, no npm needed) ---
+// Hackathon attribution tag — must be appended to every transaction's calldata.
+// See https://eips.ethereum.org/EIPS/eip-8021
+const ATTRIBUTION_TAG = "celo_3c23bcbe9f16";
+
+function toDataSuffix(tag) {
+  const tagBytes = new TextEncoder().encode(tag);
+  const suffix = new Uint8Array(35);
+  suffix.set(tagBytes, 1);
+  suffix[0] = tagBytes.length;
+  suffix[tagBytes.length + 1] = 0x11; // ERC-8021 marker
+  let hex = "0x";
+  for (const b of suffix) hex += b.toString(16).padStart(2, "0");
+  return hex;
+}
+
 if (!CONTRACT_ADDRESS) {
   console.error("CONTRACT_ADDRESS not set. Export it (see /llms.txt).");
   process.exit(2);
@@ -90,6 +106,7 @@ async function ensureStake(c) {
     console.log(`  approving USDT ${Number(stake) / 1e6} for the Arena contract`);
     const hash = await c.walletClient.writeContract({
       address: STAKE_TOKEN, abi: erc20Abi, functionName: "approve", args: [CONTRACT_ADDRESS, stake],
+      data: toDataSuffix(ATTRIBUTION_TAG),
     });
     await c.publicClient.waitForTransactionReceipt({ hash });
   }
@@ -98,7 +115,7 @@ async function ensureStake(c) {
 
 async function openLobby(c) {
   await ensureStake(c);
-  const hash = await c.walletClient.writeContract({ address: CONTRACT_ADDRESS, abi: arenaAbi, functionName: "openLobby" });
+  const hash = await c.walletClient.writeContract({ address: CONTRACT_ADDRESS, abi: arenaAbi, functionName: "openLobby", data: toDataSuffix(ATTRIBUTION_TAG) });
   const receipt = await c.publicClient.waitForTransactionReceipt({ hash });
   const [ev] = parseEventLogs({ logs: receipt.logs, abi: arenaAbi, eventName: "LobbyOpened" });
   if (!ev) throw new Error("LobbyOpened event not found in receipt");
@@ -109,6 +126,7 @@ async function acceptLobby(c, id) {
   await ensureStake(c);
   const hash = await c.walletClient.writeContract({
     address: CONTRACT_ADDRESS, abi: arenaAbi, functionName: "acceptLobby", args: [BigInt(id)],
+    data: toDataSuffix(ATTRIBUTION_TAG),
   });
   await c.publicClient.waitForTransactionReceipt({ hash });
 }

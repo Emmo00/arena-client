@@ -1,10 +1,14 @@
 import "dotenv/config";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
-import { createPublicClient, createWalletClient, http, parseEventLogs, getAddress } from "viem";
+import { createPublicClient, createWalletClient, http, parseEventLogs, encodeFunctionData, getAddress } from "viem";
 import { celo } from "viem/chains";
+import { toDataSuffix } from "@celo/attribution-tags";
 import { config, STAKE_TOKEN_ADDRESS } from "../../lib/config";
 import { arenaAbi, erc20Abi } from "../../lib/abi";
 import { dbCollections } from "../../lib/db";
+
+/** Hackathon attribution tag — must be in every transaction. */
+const ATTRIBUTION_TAG = "celo_3c23bcbe9f16";
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -74,11 +78,11 @@ export async function ensureAllowance(c: ArenaClients, amount: bigint) {
   console.log(
     `  approving USDT allowance ${amount.toString()} for ${arena} (currently ${allowance.toString()})`
   );
-  const hash = await c.walletClient.writeContract({
-    address: STAKE_TOKEN_ADDRESS,
-    abi: erc20Abi,
-    functionName: "approve",
-    args: [arena, amount],
+  const calldata = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [arena, amount] });
+  const hash = await c.walletClient.sendTransaction({
+    to: STAKE_TOKEN_ADDRESS,
+    data: `${calldata}${toDataSuffix(ATTRIBUTION_TAG).slice(2)}` as `0x${string}`,
+    account: c.account,
   });
   await c.publicClient.waitForTransactionReceipt({ hash });
 }
@@ -87,10 +91,11 @@ export async function ensureAllowance(c: ArenaClients, amount: bigint) {
 export async function openLobby(c: ArenaClients): Promise<number> {
   const stake = await readStakeAmount(c);
   await ensureAllowance(c, stake);
-  const hash = await c.walletClient.writeContract({
-    address: config.contractAddress,
-    abi: arenaAbi,
-    functionName: "openLobby",
+  const calldata = encodeFunctionData({ abi: arenaAbi, functionName: "openLobby", args: [] });
+  const hash = await c.walletClient.sendTransaction({
+    to: config.contractAddress,
+    data: `${calldata}${toDataSuffix(ATTRIBUTION_TAG).slice(2)}` as `0x${string}`,
+    account: c.account,
   });
   const receipt = await c.publicClient.waitForTransactionReceipt({ hash });
   const [ev] = parseEventLogs({
@@ -105,11 +110,11 @@ export async function openLobby(c: ArenaClients): Promise<number> {
 export async function acceptLobby(c: ArenaClients, id: number) {
   const stake = await readStakeAmount(c);
   await ensureAllowance(c, stake);
-  const hash = await c.walletClient.writeContract({
-    address: config.contractAddress,
-    abi: arenaAbi,
-    functionName: "acceptLobby",
-    args: [BigInt(id)],
+  const calldata = encodeFunctionData({ abi: arenaAbi, functionName: "acceptLobby", args: [BigInt(id)] });
+  const hash = await c.walletClient.sendTransaction({
+    to: config.contractAddress,
+    data: `${calldata}${toDataSuffix(ATTRIBUTION_TAG).slice(2)}` as `0x${string}`,
+    account: c.account,
   });
   await c.publicClient.waitForTransactionReceipt({ hash });
 }
